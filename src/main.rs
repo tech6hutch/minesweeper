@@ -12,67 +12,85 @@ const COLOR_OPENED: u32 = 0x00777700;
 const COLOR_TEXT_LIGHT: u32 = COLOR_UNOPENED;
 const COLOR_TEXT_DARK: u32 = COLOR_OPENED;
 
-const WIDTH: usize = (CELL_SIZE + 1) * 10 + 1;
-const HEIGHT: usize = (CELL_SIZE + 1) * 10 + 1;
-
 // In pixels
 const CELL_SIZE: usize = 32;
 const CELL_SIZE_F: f32 = 32.0;
 
-const cell_cols: usize = 10;
-const cell_rows: usize = 10;
-const board_width: usize = (CELL_SIZE + 1) * cell_cols;
-const board_height: usize = (CELL_SIZE + 1) * cell_rows;
+// Note to self: only things that are constant for the duration of the window should go here.
+#[derive(Default)]
+struct Config {
+    cell_cols: usize,
+    cell_rows: usize,
+    buffer_width: usize,
+    buffer_height: usize,
+}
+impl Config {
+    fn board_width(&self) -> usize {
+        (CELL_SIZE + 1) * self.cell_cols
+    }
+    fn board_height(&self) -> usize {
+        (CELL_SIZE + 1) * self.cell_rows
+    }
+}
 
 fn main() {
+    let mut cfg = Config {
+        cell_cols: 10,
+        cell_rows: 10,
+        ..Config::default()
+    };
+    cfg.buffer_width = (CELL_SIZE + 1) * cfg.cell_cols + 1;
+    cfg.buffer_height = (CELL_SIZE + 1) * cfg.cell_rows + 1;
+
     let font = FontRef::try_from_slice(FIRA_CODE_BYTES).unwrap();
     let emoji_font = FontRef::try_from_slice(NOTO_EMOJI_BYTES).unwrap();
-    let mut buffer = vec![0u32; WIDTH * HEIGHT];
-    let mut window = Window::new("Rust test", WIDTH, HEIGHT, Default::default()).unwrap();
+    let mut buffer = vec![0u32; cfg.buffer_width * cfg.buffer_height];
+    let mut window = Window::new(
+        "Minesweeper",
+        cfg.buffer_width,
+        cfg.buffer_height,
+        Default::default(),
+    )
+    .unwrap();
 
-    let mines: [[bool; cell_cols]; cell_rows] = [
-        [
+    let mines: Vec<Vec<bool>> = vec![
+        vec![
             false, false, false, true, false, false, false, false, true, true,
         ],
-        [
+        vec![
             false, false, true, false, false, false, true, true, false, true,
         ],
-        [
+        vec![
             true, false, false, true, false, false, false, true, false, true,
         ],
-        [
+        vec![
             false, false, false, true, true, true, true, true, false, true,
         ],
-        [
+        vec![
             true, true, false, true, true, false, false, false, true, true,
         ],
-        [
+        vec![
             true, true, false, true, false, false, true, false, true, true,
         ],
-        [true, true, false, true, true, true, true, false, true, true],
-        [
+        vec![true, true, false, true, true, true, true, false, true, true],
+        vec![
             false, true, true, true, true, true, false, true, true, false,
         ],
-        [
+        vec![
             false, true, true, false, true, false, true, true, false, true,
         ],
-        [
+        vec![
             true, true, true, true, false, false, false, false, false, true,
         ],
     ];
 
-    let mut cells: [[Cell; cell_cols]; cell_rows] = Default::default();
+    let mut cells: Vec<Vec<Cell>> = vec![vec![Cell::Unopened; cfg.cell_cols]; cfg.cell_rows];
     #[derive(Copy, Clone)]
     #[repr(u8)]
     enum Cell {
         Unopened,
         Opened,
         Flagged,
-    }
-    impl Default for Cell {
-        fn default() -> Cell {
-            Cell::Unopened
-        }
     }
 
     let mut mouse_left = CellsMouseState {
@@ -84,8 +102,8 @@ fn main() {
         held: None,
     };
     while window.is_open() && !window.is_key_down(Key::Escape) {
-        let left_clicked_cell = mouse_left.check(&window);
-        let right_clicked_cell = mouse_right.check(&window);
+        let left_clicked_cell = mouse_left.check(&cfg, &window);
+        let right_clicked_cell = mouse_right.check(&cfg, &window);
         if left_clicked_cell.is_some() && right_clicked_cell.is_some() {
             todo!("chording, or w/e it's called");
         } else {
@@ -114,14 +132,14 @@ fn main() {
         }
 
         for (i, px) in buffer.iter_mut().enumerate() {
-            let row = i / WIDTH;
-            let col = i % WIDTH;
+            let row = i / cfg.buffer_width;
+            let col = i % cfg.buffer_width;
             *px = if row > mines.len() * (CELL_SIZE + 1) || col > mines[0].len() * (CELL_SIZE + 1) {
                 COLOR_OOB
             } else if row % (CELL_SIZE + 1) == 0 || col % (CELL_SIZE + 1) == 0 {
                 COLOR_LINE
             } else {
-                let (cell_x, cell_y) = pos_to_cell((col, row)).expect("somehow OoB");
+                let (cell_x, cell_y) = pos_to_cell(&cfg, (col, row)).expect("somehow OoB");
                 match cells[cell_y][cell_x] {
                     Cell::Unopened => COLOR_UNOPENED,
                     Cell::Opened => COLOR_OPENED,
@@ -137,6 +155,7 @@ fn main() {
                     Cell::Opened => {
                         if mines[cell_y][cell_x] {
                             draw_char_in_cell(
+                                &cfg,
                                 &emoji_font,
                                 '💣',
                                 COLOR_TEXT_LIGHT,
@@ -180,6 +199,7 @@ fn main() {
                             }
                         }
                         draw_char_in_cell(
+                            &cfg,
                             &font,
                             char::from_digit(mine_count, 10).unwrap(),
                             COLOR_TEXT_LIGHT,
@@ -190,6 +210,7 @@ fn main() {
                     }
                     Cell::Flagged => {
                         draw_char_in_cell(
+                            &cfg,
                             &emoji_font,
                             '🚩',
                             COLOR_TEXT_DARK,
@@ -202,7 +223,9 @@ fn main() {
             }
         }
 
-        window.update_with_buffer(&buffer, WIDTH, HEIGHT).unwrap();
+        window
+            .update_with_buffer(&buffer, cfg.buffer_width, cfg.buffer_height)
+            .unwrap();
     }
 }
 
@@ -211,12 +234,12 @@ struct CellsMouseState {
     held: Option<(usize, usize)>,
 }
 impl CellsMouseState {
-    fn check(&mut self, window: &Window) -> Option<(usize, usize)> {
+    fn check(&mut self, cfg: &Config, window: &Window) -> Option<(usize, usize)> {
         if window.get_mouse_down(self.button) {
             if let Some(_) = self.held {
                 // The mouse was clicked in a previous frame. We're waiting for it to be released.
             } else if let Some(pos) = window.get_mouse_pos(MouseMode::Discard) {
-                self.held = pos_to_cell_f(pos);
+                self.held = pos_to_cell_f(cfg, pos);
             }
             return None;
         }
@@ -224,7 +247,7 @@ impl CellsMouseState {
             self.held = None;
             if let Some((new_cell_x, new_cell_y)) = window
                 .get_mouse_pos(MouseMode::Discard)
-                .and_then(pos_to_cell_f)
+                .and_then(|pos| pos_to_cell_f(cfg, pos))
             {
                 if cell_x == new_cell_x && cell_y == new_cell_y {
                     return Some((cell_x, cell_y));
@@ -236,22 +259,27 @@ impl CellsMouseState {
     }
 }
 
-fn pos_to_cell((x, y): (usize, usize)) -> Option<(usize, usize)> {
-    if x < board_width && x % (CELL_SIZE + 1) != 0 && y < board_height && y % (CELL_SIZE + 1) != 0 {
+fn pos_to_cell(cfg: &Config, (x, y): (usize, usize)) -> Option<(usize, usize)> {
+    if x < cfg.board_width()
+        && x % (CELL_SIZE + 1) != 0
+        && y < cfg.board_height()
+        && y % (CELL_SIZE + 1) != 0
+    {
         Some((x / (CELL_SIZE + 1), y / (CELL_SIZE + 1)))
     } else {
         None
     }
 }
-fn pos_to_cell_f((x, y): (f32, f32)) -> Option<(usize, usize)> {
+fn pos_to_cell_f(cfg: &Config, (x, y): (f32, f32)) -> Option<(usize, usize)> {
     // Truncate the floats
     let x = x as usize;
     let y = y as usize;
-    pos_to_cell((x, y))
+    pos_to_cell(cfg, (x, y))
 }
 
 /// Draws a char at x,y in the (flat) buffer.
 fn draw_char_in_cell(
+    cfg: &Config,
     font: impl Font,
     c: char,
     color: u32,
@@ -275,7 +303,7 @@ fn draw_char_in_cell(
         let mut y: usize = y.try_into().unwrap();
         y += board_y;
         y += offset_y;
-        let i = y * WIDTH + x;
+        let i = y * cfg.buffer_width + x;
         buffer[i] = color;
     });
 }
