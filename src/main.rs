@@ -1,21 +1,31 @@
+use ab_glyph::{Font, FontRef, Glyph};
 use minifb::{Key, MouseButton, MouseMode, Window};
+
+static FIRA_CODE_BYTES: &[u8] = include_bytes!("../fonts/Fira_Code/FiraCode-Regular.ttf");
+static NOTO_EMOJI_BYTES: &[u8] = include_bytes!("../fonts/Noto_Emoji/NotoEmoji-Regular.ttf");
 
 const COLOR_OOB: u32 = 0x00000000;
 const COLOR_LINE: u32 = 0x00cccc00;
 const COLOR_UNOPENED: u32 = 0x00ffff00;
 const COLOR_OPENED: u32 = 0x00777700;
 
-fn main() {
-    const WIDTH: usize = (CELL_SIZE + 1) * 10 + 1;
-    const HEIGHT: usize = (CELL_SIZE + 1) * 10 + 1;
+const WIDTH: usize = (CELL_SIZE + 1) * 10 + 1;
+const HEIGHT: usize = (CELL_SIZE + 1) * 10 + 1;
 
+// In pixels
+const CELL_SIZE: usize = 32;
+const CELL_SIZE_F: f32 = 32.0;
+
+const cell_cols: usize = 10;
+const cell_rows: usize = 10;
+const board_width: usize = (CELL_SIZE + 1) * cell_cols;
+const board_height: usize = (CELL_SIZE + 1) * cell_rows;
+
+fn main() {
+    let font = FontRef::try_from_slice(FIRA_CODE_BYTES).unwrap();
+    let emoji_font = FontRef::try_from_slice(NOTO_EMOJI_BYTES).unwrap();
     let mut buffer = vec![0u32; WIDTH * HEIGHT];
     let mut window = Window::new("Rust test", WIDTH, HEIGHT, Default::default()).unwrap();
-
-    const cell_cols: usize = 10;
-    const cell_rows: usize = 10;
-    let board_width = (CELL_SIZE + 1) * cell_cols;
-    let board_height = (CELL_SIZE + 1) * cell_rows;
 
     let mines: [[bool; cell_cols]; cell_rows] = [
         [
@@ -49,6 +59,7 @@ fn main() {
     ];
 
     let mut cells: [[Cell; cell_cols]; cell_rows] = Default::default();
+    #[derive(Copy, Clone)]
     #[repr(u8)]
     enum Cell {
         Unopened,
@@ -61,49 +72,27 @@ fn main() {
         }
     }
 
-    const CELL_SIZE: usize = 32;
-
-    let mut mouse_held_cell: Option<(usize, usize)> = None;
+    
+    let mut mouse_left = CellsMouseState { button: MouseButton::Left, held: None };
+    let mut mouse_right = CellsMouseState { button: MouseButton::Right, held: None };
     while window.is_open() && !window.is_key_down(Key::Escape) {
-        let pos_to_cell = |(x, y)| {
-            if x < board_width
-                && x % (CELL_SIZE + 1) != 0
-                && y < board_height
-                && y % (CELL_SIZE + 1) != 0
-            {
-                Some((x / (CELL_SIZE + 1), y / (CELL_SIZE + 1)))
-            } else {
-                None
-            }
-        };
-        let pos_to_cell_f = |(x, y)| {
-            let x = x as usize;
-            let y = y as usize;
-            pos_to_cell((x, y))
-        };
-        if window.get_mouse_down(MouseButton::Left) {
-            if let Some(cell) = mouse_held_cell {
-                // The mouse was clicked in a previous frame. We're waiting for it to be released.
-            } else if let Some(pos) = window.get_mouse_pos(MouseMode::Discard) {
-                mouse_held_cell = pos_to_cell_f(pos);
-            }
-        } else if let Some((cell_x, cell_y)) = mouse_held_cell {
-            if let Some((new_cell_x, new_cell_y)) = window
-                .get_mouse_pos(MouseMode::Discard)
-                .and_then(pos_to_cell_f)
-            {
-                if cell_x == new_cell_x && cell_y == new_cell_y {
-                    println!("clicked {cell_x},{cell_y}");
-                    match cells[cell_y][cell_x] {
-                        Cell::Unopened => {
-                            cells[cell_y][cell_x] = Cell::Opened;
-                        }
-                        Cell::Opened => {}
-                        Cell::Flagged => {}
+        let left_clicked_cell = mouse_left.check(&window);
+        let right_clicked_cell = mouse_right.check(&window);
+        if left_clicked_cell.is_some() && right_clicked_cell.is_some() {
+            todo!("chording, or w/e it's called");
+        } else {
+            if let Some((cell_x, cell_y)) = left_clicked_cell {
+                match cells[cell_y][cell_x] {
+                    Cell::Unopened => {
+                        cells[cell_y][cell_x] = Cell::Opened;
                     }
+                    Cell::Opened => {}
+                    Cell::Flagged => {}
                 }
             }
-            mouse_held_cell = None;
+            if let Some((cell_x, cell_y)) = right_clicked_cell {
+                println!("right-clicked on {cell_x},{cell_y}");
+            }
         }
 
         for (i, px) in buffer.iter_mut().enumerate() {
@@ -122,6 +111,113 @@ fn main() {
                 }
             };
         }
+
+        for (cell_y, cell_row) in cells.iter().enumerate() {
+            for (cell_x, &cell) in cell_row.iter().enumerate() {
+                match cell {
+                    Cell::Unopened => {}
+                    Cell::Opened => {
+                        if mines[cell_y][cell_x] {
+                            draw_char_in_cell(&emoji_font, '💣', cell_x, cell_y, buffer.as_mut_slice());
+                            continue;
+                        }
+
+                        let mut mine_count = 0;
+                        if cell_x > 0 {
+                            if cell_y > 0 && mines[cell_y - 1][cell_x - 1] { mine_count += 1; }
+                            if mines[cell_y][cell_x - 1] { mine_count += 1; }
+                            if cell_y < mines.len() - 1 && mines[cell_y + 1][cell_x - 1] { mine_count += 1; }
+                        }
+                        {
+                            if cell_y > 0 && mines[cell_y - 1][cell_x] { mine_count += 1; }
+                            // Obviously no need to check mines[cell_y][cell_x]
+                            if cell_y < mines.len() - 1 && mines[cell_y + 1][cell_x] { mine_count += 1; }
+                        }
+                        if cell_x < mines[0].len() - 1 {
+                            if cell_y > 0 && mines[cell_y - 1][cell_x + 1] { mine_count += 1; }
+                            if mines[cell_y][cell_x + 1] { mine_count += 1; }
+                            if cell_y < mines.len() - 1 && mines[cell_y + 1][cell_x + 1] { mine_count += 1; }
+                        }
+                        draw_char_in_cell(&font, char::from_digit(mine_count, 10).unwrap(), cell_x, cell_y, buffer.as_mut_slice());
+                    }
+                    Cell::Flagged => {}
+                }
+            }
+        }
+
         window.update_with_buffer(&buffer, WIDTH, HEIGHT).unwrap();
     }
+}
+
+struct CellsMouseState {
+    button: MouseButton,
+    held: Option<(usize, usize)>,
+}
+impl CellsMouseState {
+    fn check(&mut self, window: &Window) -> Option<(usize, usize)> {
+        if window.get_mouse_down(self.button) {
+            if let Some(cell) = self.held {
+                // The mouse was clicked in a previous frame. We're waiting for it to be released.
+            } else if let Some(pos) = window.get_mouse_pos(MouseMode::Discard) {
+                self.held = pos_to_cell_f(pos);
+            }
+            return None;
+        }
+        if let Some((cell_x, cell_y)) = self.held {
+            self.held = None;
+            if let Some((new_cell_x, new_cell_y)) = window
+                .get_mouse_pos(MouseMode::Discard)
+                .and_then(pos_to_cell_f)
+            {
+                if cell_x == new_cell_x && cell_y == new_cell_y {
+                    return Some((cell_x, cell_y));
+                }
+            }
+            return None;
+        }
+        return None;
+    }
+}
+
+fn pos_to_cell((x, y): (usize, usize)) -> Option<(usize, usize)> {
+    if x < board_width
+        && x % (CELL_SIZE + 1) != 0
+        && y < board_height
+        && y % (CELL_SIZE + 1) != 0
+    {
+        Some((x / (CELL_SIZE + 1), y / (CELL_SIZE + 1)))
+    } else {
+        None
+    }
+}
+fn pos_to_cell_f((x, y): (f32, f32)) -> Option<(usize, usize)> {
+    // Truncate the floats
+    let x = x as usize;
+    let y = y as usize;
+    pos_to_cell((x, y))
+}
+
+/// Draws a char at x,y in the (flat) buffer.
+fn draw_char_in_cell(font: impl Font, c: char, cell_x: usize, cell_y: usize, buffer: &mut [u32]) {
+    let board_x = cell_x * (CELL_SIZE + 1);
+    let board_y = cell_y * (CELL_SIZE + 1);
+    let glyph = font.glyph_id(c).with_scale(CELL_SIZE_F);
+    let outlined = font.outline_glyph(glyph).expect("couldn't outline glyph");
+    let offset_x: usize =
+        ((CELL_SIZE_F - outlined.px_bounds().width()) * 0.5) as usize + 1;
+    let offset_y: usize =
+        ((CELL_SIZE_F - outlined.px_bounds().height()) * 0.5) as usize + 1;
+    outlined.draw(|x, y, c| {
+        if c < 0.5 {
+            return;
+        }
+        let mut x: usize = x.try_into().unwrap();
+        x += board_x;
+        x += offset_x;
+        let mut y: usize = y.try_into().unwrap();
+        y += board_y;
+        y += offset_y;
+        let i = y * WIDTH + x;
+        buffer[i] = 0x00ffff00;
+    });
 }
