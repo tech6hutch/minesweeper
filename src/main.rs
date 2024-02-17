@@ -102,12 +102,15 @@ fn main() {
         held: None,
     };
     while window.is_open() && !window.is_key_down(Key::Escape) {
-        let left_clicked_cell = mouse_left.check(&cfg, &window);
-        let right_clicked_cell = mouse_right.check(&cfg, &window);
-        if left_clicked_cell.is_some() && right_clicked_cell.is_some() {
+        let left_click_cell = mouse_left.check(&cfg, &window);
+        let right_click_cell = mouse_right.check(&cfg, &window);
+        if left_click_cell.is_some() && right_click_cell.is_some() {
             todo!("chording, or w/e it's called");
         } else {
-            if let Some((cell_x, cell_y)) = left_clicked_cell {
+            // If the *other* button is clicked, it seems like a misclick.
+            let left_click_cell = left_click_cell.filter(|_| !mouse_right.held.is_some());
+            let right_click_cell = right_click_cell.filter(|_| !mouse_left.held.is_some());
+            if let Some((cell_x, cell_y)) = left_click_cell {
                 let cell = &mut cells[cell_y][cell_x];
                 match cell {
                     Cell::Unopened => {
@@ -117,7 +120,7 @@ fn main() {
                     Cell::Flagged => {}
                 }
             }
-            if let Some((cell_x, cell_y)) = right_clicked_cell {
+            if let Some((cell_x, cell_y)) = right_click_cell {
                 let cell = &mut cells[cell_y][cell_x];
                 match cell {
                     Cell::Unopened => {
@@ -294,9 +297,6 @@ fn draw_char_in_cell(
     let offset_x: usize = ((CELL_SIZE_F - outlined.px_bounds().width()) * 0.5) as usize + 1;
     let offset_y: usize = ((CELL_SIZE_F - outlined.px_bounds().height()) * 0.5) as usize + 1;
     outlined.draw(|x, y, c| {
-        if c < 0.5 {
-            return;
-        }
         let mut x: usize = x.try_into().unwrap();
         x += board_x;
         x += offset_x;
@@ -304,6 +304,22 @@ fn draw_char_in_cell(
         y += board_y;
         y += offset_y;
         let i = y * cfg.buffer_width + x;
-        buffer[i] = color;
+        // Sometimes c is > 1.0 🤷
+        buffer[i] = lerp_colors(buffer[i], color, f32::min(c, 1.0));
     });
+}
+
+fn lerp_colors(min: u32, max: u32, amt: f32) -> u32 {
+    let min_bytes = min.to_be_bytes();
+    let max_bytes = max.to_be_bytes();
+    u32::from_be_bytes([
+        0, // always zero
+        lerp_u8(min_bytes[1], max_bytes[1], amt),
+        lerp_u8(min_bytes[2], max_bytes[2], amt),
+        lerp_u8(min_bytes[3], max_bytes[3], amt),
+    ])
+}
+
+fn lerp_u8(min: u8, max: u8, amt: f32) -> u8 {
+    min + ((max - min) as f32 * amt) as u8
 }
