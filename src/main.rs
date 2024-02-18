@@ -84,11 +84,24 @@ fn main() {
         ],
     ];
 
-    let mine_counts: Vec<Vec<u8>> = mines.iter().enumerate().map(|(cell_y, row)| row.iter().enumerate().map(|(cell_x, _)| {
-        let mut cnt = 0;
-        do_surrounding(&cfg, cell_x, cell_y, |sx, sy| if mines[sy][sx] { cnt += 1; });
-        cnt
-    }).collect::<Vec<_>>()).collect();
+    let mine_counts: Vec<Vec<u8>> = mines
+        .iter()
+        .enumerate()
+        .map(|(cell_y, row)| {
+            row.iter()
+                .enumerate()
+                .map(|(cell_x, _)| {
+                    let mut cnt = 0;
+                    do_surrounding(&cfg, cell_x, cell_y, |sx, sy| {
+                        if mines[sy][sx] {
+                            cnt += 1;
+                        }
+                    });
+                    cnt
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
 
     let mut cells: Vec<Vec<Cell>> = vec![vec![Cell::Unopened; cfg.cell_cols]; cfg.cell_rows];
     #[derive(Copy, Clone, PartialEq)]
@@ -128,7 +141,11 @@ fn main() {
                 Cell::Unopened | Cell::Flagged => {}
                 Cell::Opened => {
                     let mut flag_count = 0;
-                    do_surrounding(&cfg, cell_x, cell_y, |sx, sy| if cells[sy][sx] == Cell::Flagged { flag_count += 1; });
+                    do_surrounding(&cfg, cell_x, cell_y, |sx, sy| {
+                        if cells[sy][sx] == Cell::Flagged {
+                            flag_count += 1;
+                        }
+                    });
                     let mine_count = mine_counts[cell_y][cell_x];
                     if flag_count == mine_count {
                         do_surrounding(&cfg, cell_x, cell_y, |sx, sy| {
@@ -179,7 +196,9 @@ fn main() {
             for (i, px) in buffer.iter_mut().enumerate() {
                 let row = i / cfg.buffer_width;
                 let col = i % cfg.buffer_width;
-                *px = if row > mines.len() * (CELL_SIZE + 1) || col > mines[0].len() * (CELL_SIZE + 1) {
+                *px = if row > mines.len() * (CELL_SIZE + 1)
+                    || col > mines[0].len() * (CELL_SIZE + 1)
+                {
                     COLOR_OOB
                 } else if row % (CELL_SIZE + 1) == 0 || col % (CELL_SIZE + 1) == 0 {
                     COLOR_LINE
@@ -193,6 +212,7 @@ fn main() {
                 };
             }
 
+            let mut mines_left = mines.iter().flatten().filter(|&&b| b).count() as isize;
             for (cell_y, cell_row) in cells.iter().enumerate() {
                 for (cell_x, &cell) in cell_row.iter().enumerate() {
                     match cell {
@@ -212,17 +232,20 @@ fn main() {
                             }
 
                             let mine_count = mine_counts[cell_y][cell_x];
-                            draw_char_in_cell(
-                                &cfg,
-                                &font,
-                                (mine_count + b'0') as char,
-                                COLOR_TEXT_LIGHT,
-                                cell_x,
-                                cell_y,
-                                buffer.as_mut_slice(),
-                            );
+                            if mine_count > 0 {
+                                draw_char_in_cell(
+                                    &cfg,
+                                    &font,
+                                    (mine_count + b'0') as char,
+                                    COLOR_TEXT_LIGHT,
+                                    cell_x,
+                                    cell_y,
+                                    buffer.as_mut_slice(),
+                                );
+                            }
                         }
                         Cell::Flagged => {
+                            mines_left -= 1;
                             draw_char_in_cell(
                                 &cfg,
                                 &emoji_font,
@@ -236,6 +259,8 @@ fn main() {
                     }
                 }
             }
+
+            window.set_title(&format!("Minesweeper - {mines_left}💣"));
         }
 
         first_loop = false;
