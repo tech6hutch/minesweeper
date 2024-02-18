@@ -84,8 +84,14 @@ fn main() {
         ],
     ];
 
+    let mine_counts: Vec<Vec<u8>> = mines.iter().enumerate().map(|(cell_y, row)| row.iter().enumerate().map(|(cell_x, _)| {
+        let mut cnt = 0;
+        do_surrounding(&cfg, cell_x, cell_y, |sx, sy| if mines[sy][sx] { cnt += 1; });
+        cnt
+    }).collect::<Vec<_>>()).collect();
+
     let mut cells: Vec<Vec<Cell>> = vec![vec![Cell::Unopened; cfg.cell_cols]; cfg.cell_rows];
-    #[derive(Copy, Clone)]
+    #[derive(Copy, Clone, PartialEq)]
     #[repr(u8)]
     enum Cell {
         Unopened,
@@ -97,15 +103,48 @@ fn main() {
         button: MouseButton::Left,
         held: None,
     };
+    let mut mouse_middle = CellsMouseState {
+        button: MouseButton::Middle,
+        held: None,
+    };
     let mut mouse_right = CellsMouseState {
         button: MouseButton::Right,
         held: None,
     };
+
+    let mut first_loop = true;
     while window.is_open() && !window.is_key_down(Key::Escape) {
+        let mut was_input = true;
         let left_click_cell = mouse_left.check(&cfg, &window);
+        let middle_click_cell = mouse_middle.check(&cfg, &window);
         let right_click_cell = mouse_right.check(&cfg, &window);
-        if left_click_cell.is_some() && right_click_cell.is_some() {
-            todo!("chording, or w/e it's called");
+        if (left_click_cell.is_some() && right_click_cell.is_some())
+            || middle_click_cell.is_some()
+            || (left_click_cell.is_some()
+                && (window.is_key_down(Key::LeftShift) || window.is_key_down(Key::RightShift)))
+        {
+            let (cell_x, cell_y) = middle_click_cell.or(left_click_cell).unwrap();
+            match cells[cell_y][cell_x] {
+                Cell::Unopened | Cell::Flagged => {}
+                Cell::Opened => {
+                    let mut flag_count = 0;
+                    do_surrounding(&cfg, cell_x, cell_y, |sx, sy| if cells[sy][sx] == Cell::Flagged { flag_count += 1; });
+                    let mine_count = mine_counts[cell_y][cell_x];
+                    if flag_count == mine_count {
+                        do_surrounding(&cfg, cell_x, cell_y, |sx, sy| {
+                            let cell = &mut cells[sy][sx];
+                            match cell {
+                                Cell::Unopened => {
+                                    *cell = Cell::Opened;
+                                }
+                                Cell::Flagged | Cell::Opened => {}
+                            }
+                        });
+                    } else {
+                        play_bell();
+                    }
+                }
+            }
         } else {
             // If the *other* button is clicked, it seems like a misclick.
             let left_click_cell = left_click_cell.filter(|_| !mouse_right.held.is_some());
@@ -119,8 +158,7 @@ fn main() {
                     Cell::Opened => {}
                     Cell::Flagged => {}
                 }
-            }
-            if let Some((cell_x, cell_y)) = right_click_cell {
+            } else if let Some((cell_x, cell_y)) = right_click_cell {
                 let cell = &mut cells[cell_y][cell_x];
                 match cell {
                     Cell::Unopened => {
@@ -131,101 +169,76 @@ fn main() {
                         *cell = Cell::Unopened;
                     }
                 }
+            } else if !first_loop {
+                was_input = false;
             }
         }
 
-        for (i, px) in buffer.iter_mut().enumerate() {
-            let row = i / cfg.buffer_width;
-            let col = i % cfg.buffer_width;
-            *px = if row > mines.len() * (CELL_SIZE + 1) || col > mines[0].len() * (CELL_SIZE + 1) {
-                COLOR_OOB
-            } else if row % (CELL_SIZE + 1) == 0 || col % (CELL_SIZE + 1) == 0 {
-                COLOR_LINE
-            } else {
-                let (cell_x, cell_y) = pos_to_cell(&cfg, (col, row)).expect("somehow OoB");
-                match cells[cell_y][cell_x] {
-                    Cell::Unopened => COLOR_UNOPENED,
-                    Cell::Opened => COLOR_OPENED,
-                    Cell::Flagged => COLOR_UNOPENED,
-                }
-            };
-        }
+        // Skip updating the buffer until there is input.
+        if first_loop || was_input {
+            for (i, px) in buffer.iter_mut().enumerate() {
+                let row = i / cfg.buffer_width;
+                let col = i % cfg.buffer_width;
+                *px = if row > mines.len() * (CELL_SIZE + 1) || col > mines[0].len() * (CELL_SIZE + 1) {
+                    COLOR_OOB
+                } else if row % (CELL_SIZE + 1) == 0 || col % (CELL_SIZE + 1) == 0 {
+                    COLOR_LINE
+                } else {
+                    let (cell_x, cell_y) = pos_to_cell(&cfg, (col, row)).expect("somehow OoB");
+                    match cells[cell_y][cell_x] {
+                        Cell::Unopened => COLOR_UNOPENED,
+                        Cell::Opened => COLOR_OPENED,
+                        Cell::Flagged => COLOR_UNOPENED,
+                    }
+                };
+            }
 
-        for (cell_y, cell_row) in cells.iter().enumerate() {
-            for (cell_x, &cell) in cell_row.iter().enumerate() {
-                match cell {
-                    Cell::Unopened => {}
-                    Cell::Opened => {
-                        if mines[cell_y][cell_x] {
+            for (cell_y, cell_row) in cells.iter().enumerate() {
+                for (cell_x, &cell) in cell_row.iter().enumerate() {
+                    match cell {
+                        Cell::Unopened => {}
+                        Cell::Opened => {
+                            if mines[cell_y][cell_x] {
+                                draw_char_in_cell(
+                                    &cfg,
+                                    &emoji_font,
+                                    '💣',
+                                    COLOR_TEXT_LIGHT,
+                                    cell_x,
+                                    cell_y,
+                                    buffer.as_mut_slice(),
+                                );
+                                continue;
+                            }
+
+                            let mine_count = mine_counts[cell_y][cell_x];
                             draw_char_in_cell(
                                 &cfg,
-                                &emoji_font,
-                                '💣',
+                                &font,
+                                (mine_count + b'0') as char,
                                 COLOR_TEXT_LIGHT,
                                 cell_x,
                                 cell_y,
                                 buffer.as_mut_slice(),
                             );
-                            continue;
                         }
-
-                        let mut mine_count = 0;
-                        if cell_x > 0 {
-                            if cell_y > 0 && mines[cell_y - 1][cell_x - 1] {
-                                mine_count += 1;
-                            }
-                            if mines[cell_y][cell_x - 1] {
-                                mine_count += 1;
-                            }
-                            if cell_y < mines.len() - 1 && mines[cell_y + 1][cell_x - 1] {
-                                mine_count += 1;
-                            }
+                        Cell::Flagged => {
+                            draw_char_in_cell(
+                                &cfg,
+                                &emoji_font,
+                                '🚩',
+                                COLOR_TEXT_DARK,
+                                cell_x,
+                                cell_y,
+                                buffer.as_mut_slice(),
+                            );
                         }
-                        {
-                            if cell_y > 0 && mines[cell_y - 1][cell_x] {
-                                mine_count += 1;
-                            }
-                            // Obviously no need to check mines[cell_y][cell_x]
-                            if cell_y < mines.len() - 1 && mines[cell_y + 1][cell_x] {
-                                mine_count += 1;
-                            }
-                        }
-                        if cell_x < mines[0].len() - 1 {
-                            if cell_y > 0 && mines[cell_y - 1][cell_x + 1] {
-                                mine_count += 1;
-                            }
-                            if mines[cell_y][cell_x + 1] {
-                                mine_count += 1;
-                            }
-                            if cell_y < mines.len() - 1 && mines[cell_y + 1][cell_x + 1] {
-                                mine_count += 1;
-                            }
-                        }
-                        draw_char_in_cell(
-                            &cfg,
-                            &font,
-                            char::from_digit(mine_count, 10).unwrap(),
-                            COLOR_TEXT_LIGHT,
-                            cell_x,
-                            cell_y,
-                            buffer.as_mut_slice(),
-                        );
-                    }
-                    Cell::Flagged => {
-                        draw_char_in_cell(
-                            &cfg,
-                            &emoji_font,
-                            '🚩',
-                            COLOR_TEXT_DARK,
-                            cell_x,
-                            cell_y,
-                            buffer.as_mut_slice(),
-                        );
                     }
                 }
             }
         }
 
+        first_loop = false;
         window
             .update_with_buffer(&buffer, cfg.buffer_width, cfg.buffer_height)
             .unwrap();
@@ -280,6 +293,37 @@ fn pos_to_cell_f(cfg: &Config, (x, y): (f32, f32)) -> Option<(usize, usize)> {
     pos_to_cell(cfg, (x, y))
 }
 
+#[inline]
+fn do_surrounding(cfg: &Config, cell_x: usize, cell_y: usize, mut f: impl FnMut(usize, usize)) {
+    if cell_x > 0 {
+        if cell_y > 0 {
+            f(cell_x - 1, cell_y - 1);
+        }
+        f(cell_x - 1, cell_y);
+        if cell_y < cfg.cell_rows - 1 {
+            f(cell_x - 1, cell_y + 1);
+        }
+    }
+    {
+        if cell_y > 0 {
+            f(cell_x, cell_y - 1);
+        }
+        // Obviously no need to do f(cell_x, cell_y)
+        if cell_y < cfg.cell_rows - 1 {
+            f(cell_x, cell_y + 1);
+        }
+    }
+    if cell_x < cfg.cell_cols - 1 {
+        if cell_y > 0 {
+            f(cell_x + 1, cell_y - 1);
+        }
+        f(cell_x + 1, cell_y);
+        if cell_y < cfg.cell_rows - 1 {
+            f(cell_x + 1, cell_y + 1);
+        }
+    }
+}
+
 /// Draws a char at x,y in the (flat) buffer.
 fn draw_char_in_cell(
     cfg: &Config,
@@ -324,4 +368,11 @@ fn lerp_u8(min: u8, max: u8, amt: f32) -> u8 {
     let min = i16::from(min);
     let max = i16::from(max);
     (min + ((max - min) as f32 * amt) as i16) as u8
+}
+
+fn play_bell() {
+    use std::io::Write;
+    let mut stdout = std::io::stdout();
+    stdout.write(b"\x07").unwrap();
+    stdout.flush().unwrap();
 }
