@@ -321,5 +321,7 @@ fn lerp_colors(min: u32, max: u32, amt: f32) -> u32 {
 }
 
 fn lerp_u8(min: u8, max: u8, amt: f32) -> u8 {
-    min + ((max - min) as f32 * amt) as u8
+    let min = i16::from(min);
+    let max = i16::from(max);
+    (min + ((max - min) as f32 * amt) as i16) as u8
 }
