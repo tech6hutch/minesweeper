@@ -3,6 +3,7 @@ use minifb::{Key, MouseButton, MouseMode, Window};
 
 static FIRA_CODE_BYTES: &[u8] = include_bytes!("../fonts/Fira_Code/FiraCode-Regular.ttf");
 static NOTO_EMOJI_BYTES: &[u8] = include_bytes!("../fonts/Noto_Emoji/NotoEmoji-Regular.ttf");
+static NOTO_SANS_JP_BYTES: &[u8] = include_bytes!("../fonts/Noto_Sans_JP/NotoSansJP-Regular.ttf");
 
 const COLOR_OOB: u32 = 0x00000000;
 const COLOR_LINE: u32 = 0x00cccc00;
@@ -15,6 +16,10 @@ const COLOR_TEXT_DARK: u32 = COLOR_OPENED;
 // In pixels
 const CELL_SIZE: usize = 32;
 const CELL_SIZE_F: f32 = 32.0;
+
+static DIGITS_EN: [char; 10] = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+// Unlike English, these aren't in order in Unicode, so we can't just add a constant to convert.
+static DIGITS_JP: [char; 10] = ['0', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
 
 // Note to self: only things that are constant for the duration of the window should go here.
 #[derive(Default)]
@@ -42,8 +47,9 @@ fn main() {
     cfg.buffer_width = (CELL_SIZE + 1) * cfg.cell_cols + 1;
     cfg.buffer_height = (CELL_SIZE + 1) * cfg.cell_rows + 1;
 
-    let font = FontRef::try_from_slice(FIRA_CODE_BYTES).unwrap();
+    let font = FontRef::try_from_slice(NOTO_SANS_JP_BYTES).unwrap();
     let emoji_font = FontRef::try_from_slice(NOTO_EMOJI_BYTES).unwrap();
+    let digits = DIGITS_JP;
     let mut buffer = vec![0u32; cfg.buffer_width * cfg.buffer_height];
     let mut window = Window::new(
         "Minesweeper",
@@ -236,7 +242,7 @@ fn main() {
                                 draw_char_in_cell(
                                     &cfg,
                                     &font,
-                                    (mine_count + b'0') as char,
+                                    digits[usize::from(mine_count)],
                                     COLOR_TEXT_LIGHT,
                                     cell_x,
                                     cell_y,
