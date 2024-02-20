@@ -66,15 +66,15 @@ fn main() {
         rng: fastrand::Rng::new(),
         cell_cols: 10,
         cell_rows: 10,
-        mine_count: 3,
+        mine_count: 5,
         ..Config::default()
     };
     cfg.buffer_width = (CELL_SIZE + 1) * cfg.cell_cols + 1;
     cfg.buffer_height = (CELL_SIZE + 1) * cfg.cell_rows + 1;
 
-    let font = FontRef::try_from_slice(NOTO_SANS_JP_BYTES).unwrap();
+    let font = FontRef::try_from_slice(FIRA_CODE_BYTES).unwrap();
     let emoji_font = FontRef::try_from_slice(NOTO_EMOJI_BYTES).unwrap();
-    let digits = DIGITS_JP;
+    let digits = DIGITS_EN;
     let mut buffer = vec![0u32; cfg.buffer_width * cfg.buffer_height];
     let mut window = Window::new(
         "Minesweeper",
@@ -177,7 +177,17 @@ fn main() {
                 let cell = &mut cells[cell_y][cell_x];
                 match cell {
                     Cell::Unopened => {
-                        *cell = Cell::Opened;
+                        fn open_cell(cfg: &Config, sx: usize, sy: usize, cells: &mut Vec<Vec<Cell>>, mine_counts: &[u8]) {
+                            let cell = &mut cells[sy][sx];
+                            if *cell != Cell::Unopened {
+                                return;
+                            }
+                            *cell = Cell::Opened;
+                            if mine_counts[cfg.cell_coords_to_idx(sx, sy)] == 0 {
+                                do_surrounding(&cfg, sx, sy, |ssx, ssy| open_cell(&cfg, ssx, ssy, cells, mine_counts));
+                            }
+                        }
+                        open_cell(&cfg, cell_x, cell_y, &mut cells, &mine_counts);
                     }
                     Cell::Opened => {}
                     Cell::Flagged => {}
