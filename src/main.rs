@@ -24,8 +24,10 @@ static DIGITS_JP: [char; 10] = ['0', '一', '二', '三', '四', '五', '六', '
 // Note to self: only things that are constant for the duration of the window should go here.
 #[derive(Default)]
 struct Config {
+    rng: fastrand::Rng,
     cell_cols: usize,
     cell_rows: usize,
+    mine_count: usize,
     buffer_width: usize,
     buffer_height: usize,
 }
@@ -40,8 +42,10 @@ impl Config {
 
 fn main() {
     let mut cfg = Config {
+        rng: fastrand::Rng::new(),
         cell_cols: 10,
         cell_rows: 10,
+        mine_count: 3,
         ..Config::default()
     };
     cfg.buffer_width = (CELL_SIZE + 1) * cfg.cell_cols + 1;
@@ -59,36 +63,20 @@ fn main() {
     )
     .unwrap();
 
-    let mines: Vec<Vec<bool>> = vec![
-        vec![
-            false, false, false, true, false, false, false, false, true, true,
-        ],
-        vec![
-            false, false, true, false, false, false, true, true, false, true,
-        ],
-        vec![
-            true, false, false, true, false, false, false, true, false, true,
-        ],
-        vec![
-            false, false, false, true, true, true, true, true, false, true,
-        ],
-        vec![
-            true, true, false, true, true, false, false, false, true, true,
-        ],
-        vec![
-            true, true, false, true, false, false, true, false, true, true,
-        ],
-        vec![true, true, false, true, true, true, true, false, true, true],
-        vec![
-            false, true, true, true, true, true, false, true, true, false,
-        ],
-        vec![
-            false, true, true, false, true, false, true, true, false, true,
-        ],
-        vec![
-            true, true, true, true, false, false, false, false, false, true,
-        ],
-    ];
+    // TODO: Would this be simpler & more performant as a HashSet, replacing `mines`, I wonder?
+    // TODO: Squares could be represented by their flat index instead of their x,y coords.
+    let mut mine_squares = cfg.rng.choose_multiple(
+        (0..cfg.cell_rows).flat_map(|y| (0..cfg.cell_cols).map(move |x| (x, y))),
+        cfg.mine_count,
+    );
+    mine_squares.sort();
+    let mines: Vec<Vec<bool>> = (0..cfg.cell_rows)
+        .map(|y| {
+            (0..cfg.cell_cols)
+                .map(|x| mine_squares.binary_search(&(x, y)).is_ok())
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
 
     let mine_counts: Vec<Vec<u8>> = mines
         .iter()

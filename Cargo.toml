@@ -7,4 +7,5 @@ edition = "2021"
 
 [dependencies]
 ab_glyph = "0.2.23"
+fastrand = "2.0.1"
 minifb = "0.25.0"
