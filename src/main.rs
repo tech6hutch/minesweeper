@@ -177,14 +177,22 @@ fn main() {
                 let cell = &mut cells[cell_y][cell_x];
                 match cell {
                     Cell::Unopened => {
-                        fn open_cell(cfg: &Config, sx: usize, sy: usize, cells: &mut Vec<Vec<Cell>>, mine_counts: &[u8]) {
+                        fn open_cell(
+                            cfg: &Config,
+                            sx: usize,
+                            sy: usize,
+                            cells: &mut Vec<Vec<Cell>>,
+                            mine_counts: &[u8],
+                        ) {
                             let cell = &mut cells[sy][sx];
                             if *cell != Cell::Unopened {
                                 return;
                             }
                             *cell = Cell::Opened;
                             if mine_counts[cfg.cell_coords_to_idx(sx, sy)] == 0 {
-                                do_surrounding(&cfg, sx, sy, |ssx, ssy| open_cell(&cfg, ssx, ssy, cells, mine_counts));
+                                do_surrounding(&cfg, sx, sy, |ssx, ssy| {
+                                    open_cell(&cfg, ssx, ssy, cells, mine_counts)
+                                });
                             }
                         }
                         open_cell(&cfg, cell_x, cell_y, &mut cells, &mine_counts);
