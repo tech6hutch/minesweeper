@@ -21,7 +21,6 @@ static DIGITS_EN: [char; 10] = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'
 // Unlike English, these aren't in order in Unicode, so we can't just add a constant to convert.
 static DIGITS_JP: [char; 10] = ['0', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
 
-// Note to self: only things that are constant for the duration of the window should go here.
 #[derive(Default)]
 struct Config {
     rng: fastrand::Rng,
@@ -37,6 +36,28 @@ impl Config {
     }
     fn board_height(&self) -> usize {
         (CELL_SIZE + 1) * self.cell_rows
+    }
+
+    #[inline]
+    fn cell_coords_to_idx(&self, x: usize, y: usize) -> usize {
+        y * self.cell_cols + x
+    }
+
+    /// Converts pixel coords to cell coords.
+    fn pos_to_cell(&self, (x, y): (usize, usize)) -> Option<(usize, usize)> {
+        if x < self.board_width()
+            && x % (CELL_SIZE + 1) != 0
+            && y < self.board_height()
+            && y % (CELL_SIZE + 1) != 0
+        {
+            Some((x / (CELL_SIZE + 1), y / (CELL_SIZE + 1)))
+        } else {
+            None
+        }
+    }
+    fn pos_to_cell_f(&self, (x, y): (f32, f32)) -> Option<(usize, usize)> {
+        // Truncate the floats
+        self.pos_to_cell((x as usize, y as usize))
     }
 }
 
@@ -63,37 +84,29 @@ fn main() {
     )
     .unwrap();
 
-    // TODO: Would this be simpler & more performant as a HashSet, replacing `mines`, I wonder?
-    // TODO: Squares could be represented by their flat index instead of their x,y coords.
-    let mut mine_squares = cfg.rng.choose_multiple(
-        (0..cfg.cell_rows).flat_map(|y| (0..cfg.cell_cols).map(move |x| (x, y))),
-        cfg.mine_count,
-    );
+    let mut mine_squares = cfg
+        .rng
+        .choose_multiple(0..cfg.cell_rows * cfg.cell_cols, cfg.mine_count);
     mine_squares.sort();
-    let mines: Vec<Vec<bool>> = (0..cfg.cell_rows)
-        .map(|y| {
-            (0..cfg.cell_cols)
-                .map(|x| mine_squares.binary_search(&(x, y)).is_ok())
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
+    let mines: Box<[bool]> = (0..cfg.cell_rows * cfg.cell_cols)
+        .map(|i| mine_squares.binary_search(&i).is_ok())
+        .collect();
+    debug_assert_eq!(cfg.mine_count, mines.iter().filter(|&&b| b).count());
 
-    let mine_counts: Vec<Vec<u8>> = mines
-        .iter()
-        .enumerate()
-        .map(|(cell_y, row)| {
-            row.iter()
-                .enumerate()
-                .map(|(cell_x, _)| {
-                    let mut cnt = 0;
-                    do_surrounding(&cfg, cell_x, cell_y, |sx, sy| {
-                        if mines[sy][sx] {
-                            cnt += 1;
-                        }
-                    });
-                    cnt
-                })
-                .collect::<Vec<_>>()
+    let mine_counts: Box<[u8]> = (0..cfg.cell_rows)
+        .flat_map(|cell_y| {
+            // Do a safety dance
+            let cfg = &cfg;
+            let mines = &mines;
+            (0..cfg.cell_cols).map(move |cell_x| {
+                let mut cnt = 0;
+                do_surrounding(&cfg, cell_x, cell_y, |sx, sy| {
+                    if mines[cfg.cell_coords_to_idx(sx, sy)] {
+                        cnt += 1;
+                    }
+                });
+                cnt
+            })
         })
         .collect();
 
@@ -140,7 +153,7 @@ fn main() {
                             flag_count += 1;
                         }
                     });
-                    let mine_count = mine_counts[cell_y][cell_x];
+                    let mine_count = mine_counts[cfg.cell_coords_to_idx(cell_x, cell_y)];
                     if flag_count == mine_count {
                         do_surrounding(&cfg, cell_x, cell_y, |sx, sy| {
                             let cell = &mut cells[sy][sx];
@@ -190,14 +203,14 @@ fn main() {
             for (i, px) in buffer.iter_mut().enumerate() {
                 let row = i / cfg.buffer_width;
                 let col = i % cfg.buffer_width;
-                *px = if row > mines.len() * (CELL_SIZE + 1)
-                    || col > mines[0].len() * (CELL_SIZE + 1)
+                *px = if row > cfg.cell_rows * (CELL_SIZE + 1)
+                    || col > cfg.cell_cols * (CELL_SIZE + 1)
                 {
                     COLOR_OOB
                 } else if row % (CELL_SIZE + 1) == 0 || col % (CELL_SIZE + 1) == 0 {
                     COLOR_LINE
                 } else {
-                    let (cell_x, cell_y) = pos_to_cell(&cfg, (col, row)).expect("somehow OoB");
+                    let (cell_x, cell_y) = cfg.pos_to_cell((col, row)).expect("somehow OoB");
                     match cells[cell_y][cell_x] {
                         Cell::Unopened => COLOR_UNOPENED,
                         Cell::Opened => COLOR_OPENED,
@@ -206,13 +219,14 @@ fn main() {
                 };
             }
 
-            let mut mines_left = mines.iter().flatten().filter(|&&b| b).count() as isize;
+            let mut mines_left = cfg.mine_count;
             for (cell_y, cell_row) in cells.iter().enumerate() {
                 for (cell_x, &cell) in cell_row.iter().enumerate() {
+                    let i = cfg.cell_coords_to_idx(cell_x, cell_y);
                     match cell {
                         Cell::Unopened => {}
                         Cell::Opened => {
-                            if mines[cell_y][cell_x] {
+                            if mines[i] {
                                 draw_char_in_cell(
                                     &cfg,
                                     &emoji_font,
@@ -225,7 +239,7 @@ fn main() {
                                 continue;
                             }
 
-                            let mine_count = mine_counts[cell_y][cell_x];
+                            let mine_count = mine_counts[i];
                             if mine_count > 0 {
                                 draw_char_in_cell(
                                     &cfg,
@@ -274,7 +288,7 @@ impl CellsMouseState {
             if let Some(_) = self.held {
                 // The mouse was clicked in a previous frame. We're waiting for it to be released.
             } else if let Some(pos) = window.get_mouse_pos(MouseMode::Discard) {
-                self.held = pos_to_cell_f(cfg, pos);
+                self.held = cfg.pos_to_cell_f(pos);
             }
             return None;
         }
@@ -282,7 +296,7 @@ impl CellsMouseState {
             self.held = None;
             if let Some((new_cell_x, new_cell_y)) = window
                 .get_mouse_pos(MouseMode::Discard)
-                .and_then(|pos| pos_to_cell_f(cfg, pos))
+                .and_then(|pos| cfg.pos_to_cell_f(pos))
             {
                 if cell_x == new_cell_x && cell_y == new_cell_y {
                     return Some((cell_x, cell_y));
@@ -292,24 +306,6 @@ impl CellsMouseState {
         }
         return None;
     }
-}
-
-fn pos_to_cell(cfg: &Config, (x, y): (usize, usize)) -> Option<(usize, usize)> {
-    if x < cfg.board_width()
-        && x % (CELL_SIZE + 1) != 0
-        && y < cfg.board_height()
-        && y % (CELL_SIZE + 1) != 0
-    {
-        Some((x / (CELL_SIZE + 1), y / (CELL_SIZE + 1)))
-    } else {
-        None
-    }
-}
-fn pos_to_cell_f(cfg: &Config, (x, y): (f32, f32)) -> Option<(usize, usize)> {
-    // Truncate the floats
-    let x = x as usize;
-    let y = y as usize;
-    pos_to_cell(cfg, (x, y))
 }
 
 #[inline]
