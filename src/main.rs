@@ -12,6 +12,7 @@ const COLOR_OPENED: u32 = 0x00777700;
 
 const COLOR_TEXT_LIGHT: u32 = COLOR_UNOPENED;
 const COLOR_TEXT_DARK: u32 = COLOR_OPENED;
+const COLOR_TEXT_WRONG_FLAG: u32 = 0x00ff0000;
 
 // In pixels
 const CELL_SIZE: usize = 32;
@@ -72,9 +73,9 @@ fn main() {
     cfg.buffer_width = (CELL_SIZE + 1) * cfg.cell_cols + 1;
     cfg.buffer_height = (CELL_SIZE + 1) * cfg.cell_rows + 1;
 
-    let font = FontRef::try_from_slice(FIRA_CODE_BYTES).unwrap();
+    let font = FontRef::try_from_slice(NOTO_SANS_JP_BYTES).unwrap();
     let emoji_font = FontRef::try_from_slice(NOTO_EMOJI_BYTES).unwrap();
-    let digits = DIGITS_EN;
+    let digits = DIGITS_JP;
     let mut buffer = vec![0u32; cfg.buffer_width * cfg.buffer_height];
     let mut window = Window::new(
         "Minesweeper",
@@ -111,7 +112,7 @@ fn main() {
         .collect();
 
     let mut cells: Vec<Vec<Cell>> = vec![vec![Cell::Unopened; cfg.cell_cols]; cfg.cell_rows];
-    #[derive(Copy, Clone, PartialEq)]
+    #[derive(Copy, Clone, Debug, PartialEq)]
     #[repr(u8)]
     enum Cell {
         Unopened,
@@ -133,86 +134,116 @@ fn main() {
     };
 
     let mut first_loop = true;
+    let mut has_won = false;
+    let mut has_lost = false;
     while window.is_open() && !window.is_key_down(Key::Escape) {
-        let mut was_input = true;
-        let left_click_cell = mouse_left.check(&cfg, &window);
-        let middle_click_cell = mouse_middle.check(&cfg, &window);
-        let right_click_cell = mouse_right.check(&cfg, &window);
-        if (left_click_cell.is_some() && right_click_cell.is_some())
-            || middle_click_cell.is_some()
-            || (left_click_cell.is_some()
-                && (window.is_key_down(Key::LeftShift) || window.is_key_down(Key::RightShift)))
-        {
-            let (cell_x, cell_y) = middle_click_cell.or(left_click_cell).unwrap();
-            match cells[cell_y][cell_x] {
-                Cell::Unopened | Cell::Flagged => {}
-                Cell::Opened => {
-                    let mut flag_count = 0;
-                    do_surrounding(&cfg, cell_x, cell_y, |sx, sy| {
-                        if cells[sy][sx] == Cell::Flagged {
-                            flag_count += 1;
-                        }
-                    });
-                    let mine_count = mine_counts[cfg.cell_coords_to_idx(cell_x, cell_y)];
-                    if flag_count == mine_count {
+        // Skip processing clicks when the game is over.
+        let mut was_input = !has_lost && !has_won;
+        if !has_lost && !has_won {
+            let left_click_cell = mouse_left.check(&cfg, &window);
+            let middle_click_cell = mouse_middle.check(&cfg, &window);
+            let right_click_cell = mouse_right.check(&cfg, &window);
+            if (left_click_cell.is_some() && right_click_cell.is_some())
+                || middle_click_cell.is_some()
+                || (left_click_cell.is_some()
+                    && (window.is_key_down(Key::LeftShift) || window.is_key_down(Key::RightShift)))
+            {
+                let (cell_x, cell_y) = middle_click_cell.or(left_click_cell).unwrap();
+                match cells[cell_y][cell_x] {
+                    Cell::Unopened | Cell::Flagged => {}
+                    Cell::Opened => {
+                        let mut flag_count = 0;
                         do_surrounding(&cfg, cell_x, cell_y, |sx, sy| {
-                            let cell = &mut cells[sy][sx];
-                            match cell {
-                                Cell::Unopened => {
-                                    *cell = Cell::Opened;
-                                }
-                                Cell::Flagged | Cell::Opened => {}
+                            if cells[sy][sx] == Cell::Flagged {
+                                flag_count += 1;
                             }
                         });
-                    } else {
-                        play_bell();
+                        let mine_count = mine_counts[cfg.cell_coords_to_idx(cell_x, cell_y)];
+                        if flag_count == mine_count {
+                            do_surrounding(&cfg, cell_x, cell_y, |sx, sy| {
+                                let cell = &mut cells[sy][sx];
+                                match cell {
+                                    Cell::Unopened => {
+                                        *cell = Cell::Opened;
+                                    }
+                                    Cell::Flagged | Cell::Opened => {}
+                                }
+                            });
+                        } else {
+                            play_bell();
+                        }
                     }
                 }
-            }
-        } else {
-            // If the *other* button is clicked, it seems like a misclick.
-            let left_click_cell = left_click_cell.filter(|_| !mouse_right.held.is_some());
-            let right_click_cell = right_click_cell.filter(|_| !mouse_left.held.is_some());
-            if let Some((cell_x, cell_y)) = left_click_cell {
-                let cell = &mut cells[cell_y][cell_x];
-                match cell {
-                    Cell::Unopened => {
-                        fn open_cell(
-                            cfg: &Config,
-                            sx: usize,
-                            sy: usize,
-                            cells: &mut Vec<Vec<Cell>>,
-                            mine_counts: &[u8],
-                        ) {
-                            let cell = &mut cells[sy][sx];
-                            if *cell != Cell::Unopened {
-                                return;
+            } else {
+                // If the *other* button is clicked, it seems like a misclick.
+                let left_click_cell = left_click_cell.filter(|_| !mouse_right.held.is_some());
+                let right_click_cell = right_click_cell.filter(|_| !mouse_left.held.is_some());
+                if let Some((cell_x, cell_y)) = left_click_cell {
+                    let cell = &mut cells[cell_y][cell_x];
+                    match cell {
+                        Cell::Unopened => {
+                            fn open_cell(
+                                cfg: &Config,
+                                sx: usize,
+                                sy: usize,
+                                cells: &mut Vec<Vec<Cell>>,
+                                mine_counts: &[u8],
+                            ) {
+                                let cell = &mut cells[sy][sx];
+                                if *cell != Cell::Unopened {
+                                    return;
+                                }
+                                *cell = Cell::Opened;
+                                if mine_counts[cfg.cell_coords_to_idx(sx, sy)] == 0 {
+                                    do_surrounding(&cfg, sx, sy, |ssx, ssy| {
+                                        open_cell(&cfg, ssx, ssy, cells, mine_counts)
+                                    });
+                                }
                             }
-                            *cell = Cell::Opened;
-                            if mine_counts[cfg.cell_coords_to_idx(sx, sy)] == 0 {
-                                do_surrounding(&cfg, sx, sy, |ssx, ssy| {
-                                    open_cell(&cfg, ssx, ssy, cells, mine_counts)
+                            open_cell(&cfg, cell_x, cell_y, &mut cells, &mine_counts);
+
+                            has_lost = mines[cfg.cell_coords_to_idx(cell_x, cell_y)];
+                            if has_lost {
+                                println!("You've lost!");
+                            }
+                            has_won = !has_lost && !cells
+                                .iter()
+                                .enumerate()
+                                .flat_map(|(y, row)| {
+                                    row.iter().enumerate().map(move |(x, _)| (x, y))
+                                })
+                                .filter(|&(x, y)| !mines[cfg.cell_coords_to_idx(x, y)])
+                                .any(|(x, y)| {
+                                    if cells[y][x] == Cell::Unopened {
+                                        if cfg!(debug_assertions) {
+                                            println!("Some cells are still unopened (e.g., {x},{y}).");
+                                        }
+                                        true
+                                    } else {
+                                        false
+                                    }
                                 });
+                            if has_won {
+                                println!("You've won!");
                             }
                         }
-                        open_cell(&cfg, cell_x, cell_y, &mut cells, &mine_counts);
+                        Cell::Opened => {}
+                        Cell::Flagged => {}
                     }
-                    Cell::Opened => {}
-                    Cell::Flagged => {}
+                } else if let Some((cell_x, cell_y)) = right_click_cell {
+                    let cell = &mut cells[cell_y][cell_x];
+                    match cell {
+                        Cell::Unopened => {
+                            *cell = Cell::Flagged;
+                        }
+                        Cell::Opened => {}
+                        Cell::Flagged => {
+                            *cell = Cell::Unopened;
+                        }
+                    }
+                } else if !first_loop {
+                    was_input = false;
                 }
-            } else if let Some((cell_x, cell_y)) = right_click_cell {
-                let cell = &mut cells[cell_y][cell_x];
-                match cell {
-                    Cell::Unopened => {
-                        *cell = Cell::Flagged;
-                    }
-                    Cell::Opened => {}
-                    Cell::Flagged => {
-                        *cell = Cell::Unopened;
-                    }
-                }
-            } else if !first_loop {
-                was_input = false;
             }
         }
 
@@ -242,7 +273,20 @@ fn main() {
                 for (cell_x, &cell) in cell_row.iter().enumerate() {
                     let i = cfg.cell_coords_to_idx(cell_x, cell_y);
                     match cell {
-                        Cell::Unopened => {}
+                        Cell::Unopened => {
+                            if (has_lost || has_won) && mines[i] {
+                                draw_char_in_cell(
+                                    &cfg,
+                                    &emoji_font,
+                                    '💣',
+                                    COLOR_TEXT_DARK,
+                                    cell_x,
+                                    cell_y,
+                                    buffer.as_mut_slice(),
+                                );
+                            }
+                        }
+
                         Cell::Opened => {
                             if mines[i] {
                                 draw_char_in_cell(
@@ -270,13 +314,18 @@ fn main() {
                                 );
                             }
                         }
+
                         Cell::Flagged => {
                             mines_left -= 1;
                             draw_char_in_cell(
                                 &cfg,
                                 &emoji_font,
                                 '🚩',
-                                COLOR_TEXT_DARK,
+                                if (has_lost || has_won) && !mines[i] {
+                                    COLOR_TEXT_WRONG_FLAG
+                                } else {
+                                    COLOR_TEXT_DARK
+                                },
                                 cell_x,
                                 cell_y,
                                 buffer.as_mut_slice(),
