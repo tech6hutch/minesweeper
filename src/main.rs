@@ -22,45 +22,6 @@ static DIGITS_EN: [char; 10] = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'
 // Unlike English, these aren't in order in Unicode, so we can't just add a constant to convert.
 static DIGITS_JP: [char; 10] = ['0', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
 
-#[derive(Default)]
-struct Config {
-    cell_cols: usize,
-    cell_rows: usize,
-    mine_count: usize,
-    buffer_width: usize,
-    buffer_height: usize,
-}
-impl Config {
-    fn board_width(&self) -> usize {
-        (CELL_SIZE + 1) * self.cell_cols
-    }
-    fn board_height(&self) -> usize {
-        (CELL_SIZE + 1) * self.cell_rows
-    }
-
-    #[inline]
-    fn cell_coords_to_idx(&self, x: usize, y: usize) -> usize {
-        y * self.cell_cols + x
-    }
-
-    /// Converts pixel coords to cell coords.
-    fn pos_to_cell(&self, (x, y): (usize, usize)) -> Option<(usize, usize)> {
-        if x < self.board_width()
-            && x % (CELL_SIZE + 1) != 0
-            && y < self.board_height()
-            && y % (CELL_SIZE + 1) != 0
-        {
-            Some((x / (CELL_SIZE + 1), y / (CELL_SIZE + 1)))
-        } else {
-            None
-        }
-    }
-    fn pos_to_cell_f(&self, (x, y): (f32, f32)) -> Option<(usize, usize)> {
-        // Truncate the floats
-        self.pos_to_cell((x as usize, y as usize))
-    }
-}
-
 fn main() {
     let mut cfg = Config {
         cell_cols: 10,
@@ -90,13 +51,6 @@ fn main() {
     let mut mine_counts: Box<[u8]> = vec![0; cfg.cell_rows * cfg.cell_cols].into_boxed_slice();
 
     let mut cells: Vec<Vec<Cell>> = vec![vec![Cell::Unopened; cfg.cell_cols]; cfg.cell_rows];
-    #[derive(Copy, Clone, Debug, PartialEq)]
-    #[repr(u8)]
-    enum Cell {
-        Unopened,
-        Opened,
-        Flagged,
-    }
 
     let mut mouse_left = CellsMouseState {
         button: MouseButton::Left,
@@ -144,15 +98,29 @@ fn main() {
                         });
                         let mine_count = mine_counts[cfg.cell_coords_to_idx(cell_x, cell_y)];
                         if flag_count == mine_count {
+                            let mut opened_any_mines = false;
                             do_surrounding(&cfg, cell_x, cell_y, |sx, sy| {
                                 let cell = &mut cells[sy][sx];
                                 match cell {
                                     Cell::Unopened => {
                                         *cell = Cell::Opened;
+                                        if mines[cfg.cell_coords_to_idx(sx, sy)] {
+                                            opened_any_mines = true;
+                                        }
                                     }
                                     Cell::Flagged | Cell::Opened => {}
                                 }
                             });
+                            move_count += 1;
+                            // Don't return/break so that the board gets updated one last time.
+                            has_lost = opened_any_mines;
+                            if has_lost {
+                                do_loss();
+                            }
+                            has_won = !has_lost && all_safe_cells_opened(&cfg, &mines, &cells);
+                            if has_won {
+                                do_win();
+                            }
                         } else {
                             play_bell();
                         }
@@ -199,29 +167,14 @@ fn main() {
 
                             move_count += 1;
 
+                            // Don't return/break so that the board gets updated one last time.
                             has_lost = mines[cfg.cell_coords_to_idx(cell_x, cell_y)];
                             if has_lost {
-                                println!("You've lost!");
+                                do_loss();
                             }
-                            has_won = !has_lost && !cells
-                                .iter()
-                                .enumerate()
-                                .flat_map(|(y, row)| {
-                                    row.iter().enumerate().map(move |(x, _)| (x, y))
-                                })
-                                .filter(|&(x, y)| !mines[cfg.cell_coords_to_idx(x, y)])
-                                .any(|(x, y)| {
-                                    if cells[y][x] == Cell::Unopened {
-                                        if cfg!(debug_assertions) {
-                                            println!("Some cells are still unopened (e.g., {x},{y}).");
-                                        }
-                                        true
-                                    } else {
-                                        false
-                                    }
-                                });
+                            has_won = !has_lost && all_safe_cells_opened(&cfg, &mines, &cells);
                             if has_won {
-                                println!("You've won!");
+                                do_win();
                             }
                         }
                         Cell::Opened => {}
@@ -341,6 +294,126 @@ fn main() {
     }
 }
 
+fn do_win() {
+    println!("You've won!");
+}
+
+fn do_loss() {
+    println!("You've lost!");
+}
+
+fn initialize_mines(
+    cfg: &Config,
+    rng: &mut fastrand::Rng,
+    mines: &mut [bool],
+    first_click: (usize, usize),
+) {
+    const SAFE_CELLS_FOR_FIRST_CLICK: usize = 9; // 1 + 8 surrounding cells
+
+    let (click_x, click_y) = first_click;
+    let mut safe_zone = Vec::with_capacity(SAFE_CELLS_FOR_FIRST_CLICK);
+    safe_zone.push(cfg.cell_coords_to_idx(click_x, click_y));
+    do_surrounding(&cfg, click_x, click_y, |sx, sy| {
+        safe_zone.push(cfg.cell_coords_to_idx(sx, sy))
+    });
+    let mut mine_squares = rng.choose_multiple(
+        0..cfg.cell_rows * cfg.cell_cols,
+        cfg.mine_count + SAFE_CELLS_FOR_FIRST_CLICK,
+    );
+    mine_squares.sort();
+    let mut mines_placed = 0;
+    for i in 0..mines.len() {
+        if !safe_zone.contains(&i) && mine_squares.binary_search(&i).is_ok() {
+            mines[i] = true;
+            mines_placed += 1;
+            if mines_placed == cfg.mine_count {
+                break;
+            }
+        }
+    }
+    debug_assert_eq!(cfg.mine_count, mines.iter().filter(|&&b| b).count());
+}
+
+fn count_cell_mines(cfg: &Config, mine_counts: &mut [u8], mines: &[bool]) {
+    for cell_y in 0..cfg.cell_rows {
+        for cell_x in 0..cfg.cell_cols {
+            let cnt = &mut mine_counts[cfg.cell_coords_to_idx(cell_x, cell_y)];
+            do_surrounding(&cfg, cell_x, cell_y, |sx, sy| {
+                if mines[cfg.cell_coords_to_idx(sx, sy)] {
+                    *cnt += 1;
+                }
+            });
+        }
+    }
+}
+
+fn all_safe_cells_opened(cfg: &Config, mines: &[bool], cells: &Vec<Vec<Cell>>) -> bool {
+    !cells
+        .iter()
+        .enumerate()
+        .flat_map(|(y, row)| {
+            row.iter().enumerate().map(move |(x, _)| (x, y))
+        })
+        .filter(|&(x, y)| !mines[cfg.cell_coords_to_idx(x, y)])
+        .any(|(x, y)| {
+            if cells[y][x] == Cell::Unopened {
+                if cfg!(debug_assertions) {
+                    println!("Some cells are still unopened (e.g., {x},{y}).");
+                }
+                true
+            } else {
+                false
+            }
+        })
+}
+
+#[derive(Default)]
+struct Config {
+    cell_cols: usize,
+    cell_rows: usize,
+    mine_count: usize,
+    buffer_width: usize,
+    buffer_height: usize,
+}
+impl Config {
+    fn board_width(&self) -> usize {
+        (CELL_SIZE + 1) * self.cell_cols
+    }
+    fn board_height(&self) -> usize {
+        (CELL_SIZE + 1) * self.cell_rows
+    }
+
+    #[inline]
+    fn cell_coords_to_idx(&self, x: usize, y: usize) -> usize {
+        y * self.cell_cols + x
+    }
+
+    /// Converts pixel coords to cell coords.
+    fn pos_to_cell(&self, (x, y): (usize, usize)) -> Option<(usize, usize)> {
+        if x < self.board_width()
+            && x % (CELL_SIZE + 1) != 0
+            && y < self.board_height()
+            && y % (CELL_SIZE + 1) != 0
+        {
+            Some((x / (CELL_SIZE + 1), y / (CELL_SIZE + 1)))
+        } else {
+            None
+        }
+    }
+    fn pos_to_cell_f(&self, (x, y): (f32, f32)) -> Option<(usize, usize)> {
+        // Truncate the floats
+        self.pos_to_cell((x as usize, y as usize))
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+#[repr(u8)]
+enum Cell {
+    Unopened,
+    Opened,
+    Flagged,
+}
+
 struct CellsMouseState {
     button: MouseButton,
     held: Option<(usize, usize)>,
@@ -402,6 +475,7 @@ fn do_surrounding(cfg: &Config, cell_x: usize, cell_y: usize, mut f: impl FnMut(
     }
 }
 
+
 /// Draws a char at x,y in the (flat) buffer.
 fn draw_char_in_cell(
     cfg: &Config,
@@ -453,49 +527,4 @@ fn play_bell() {
     let mut stdout = std::io::stdout();
     stdout.write(b"\x07").unwrap();
     stdout.flush().unwrap();
-}
-
-fn initialize_mines(
-    cfg: &Config,
-    rng: &mut fastrand::Rng,
-    mines: &mut [bool],
-    first_click: (usize, usize),
-) {
-    const SAFE_CELLS_FOR_FIRST_CLICK: usize = 9; // 1 + 8 surrounding cells
-
-    let (click_x, click_y) = first_click;
-    let mut safe_zone = Vec::with_capacity(SAFE_CELLS_FOR_FIRST_CLICK);
-    safe_zone.push(cfg.cell_coords_to_idx(click_x, click_y));
-    do_surrounding(&cfg, click_x, click_y, |sx, sy| {
-        safe_zone.push(cfg.cell_coords_to_idx(sx, sy))
-    });
-    let mut mine_squares = rng.choose_multiple(
-        0..cfg.cell_rows * cfg.cell_cols,
-        cfg.mine_count + SAFE_CELLS_FOR_FIRST_CLICK,
-    );
-    mine_squares.sort();
-    let mut mines_placed = 0;
-    for i in 0..mines.len() {
-        if !safe_zone.contains(&i) && mine_squares.binary_search(&i).is_ok() {
-            mines[i] = true;
-            mines_placed += 1;
-            if mines_placed == cfg.mine_count {
-                break;
-            }
-        }
-    }
-    debug_assert_eq!(cfg.mine_count, mines.iter().filter(|&&b| b).count());
-}
-
-fn count_cell_mines(cfg: &Config, mine_counts: &mut [u8], mines: &[bool]) {
-    for cell_y in 0..cfg.cell_rows {
-        for cell_x in 0..cfg.cell_cols {
-            let cnt = &mut mine_counts[cfg.cell_coords_to_idx(cell_x, cell_y)];
-            do_surrounding(&cfg, cell_x, cell_y, |sx, sy| {
-                if mines[cfg.cell_coords_to_idx(sx, sy)] {
-                    *cnt += 1;
-                }
-            });
-        }
-    }
 }
