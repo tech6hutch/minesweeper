@@ -24,7 +24,6 @@ static DIGITS_JP: [char; 10] = ['0', '一', '二', '三', '四', '五', '六', '
 
 #[derive(Default)]
 struct Config {
-    rng: fastrand::Rng,
     cell_cols: usize,
     cell_rows: usize,
     mine_count: usize,
@@ -64,10 +63,9 @@ impl Config {
 
 fn main() {
     let mut cfg = Config {
-        rng: fastrand::Rng::new(),
         cell_cols: 10,
         cell_rows: 10,
-        mine_count: 5,
+        mine_count: 25,
         ..Config::default()
     };
     cfg.buffer_width = (CELL_SIZE + 1) * cfg.cell_cols + 1;
@@ -85,31 +83,11 @@ fn main() {
     )
     .unwrap();
 
-    let mut mine_squares = cfg
-        .rng
-        .choose_multiple(0..cfg.cell_rows * cfg.cell_cols, cfg.mine_count);
-    mine_squares.sort();
-    let mines: Box<[bool]> = (0..cfg.cell_rows * cfg.cell_cols)
-        .map(|i| mine_squares.binary_search(&i).is_ok())
-        .collect();
-    debug_assert_eq!(cfg.mine_count, mines.iter().filter(|&&b| b).count());
+    let mut rng = fastrand::Rng::new();
 
-    let mine_counts: Box<[u8]> = (0..cfg.cell_rows)
-        .flat_map(|cell_y| {
-            // Do a safety dance
-            let cfg = &cfg;
-            let mines = &mines;
-            (0..cfg.cell_cols).map(move |cell_x| {
-                let mut cnt = 0;
-                do_surrounding(&cfg, cell_x, cell_y, |sx, sy| {
-                    if mines[cfg.cell_coords_to_idx(sx, sy)] {
-                        cnt += 1;
-                    }
-                });
-                cnt
-            })
-        })
-        .collect();
+    // Whether each cell has a mine. Gets initialized on first click so we can ensure the player doesn't immediately lose.
+    let mut mines: Box<[bool]> = vec![false; cfg.cell_rows * cfg.cell_cols].into_boxed_slice();
+    let mut mine_counts: Box<[u8]> = vec![0; cfg.cell_rows * cfg.cell_cols].into_boxed_slice();
 
     let mut cells: Vec<Vec<Cell>> = vec![vec![Cell::Unopened; cfg.cell_cols]; cfg.cell_rows];
     #[derive(Copy, Clone, Debug, PartialEq)]
@@ -133,21 +111,27 @@ fn main() {
         held: None,
     };
 
-    let mut first_loop = true;
+    let mut move_count = 0;
     let mut has_won = false;
     let mut has_lost = false;
     while window.is_open() && !window.is_key_down(Key::Escape) {
         // Skip processing clicks when the game is over.
         let mut was_input = !has_lost && !has_won;
         if !has_lost && !has_won {
-            let left_click_cell = mouse_left.check(&cfg, &window);
-            let middle_click_cell = mouse_middle.check(&cfg, &window);
-            let right_click_cell = mouse_right.check(&cfg, &window);
-            if (left_click_cell.is_some() && right_click_cell.is_some())
-                || middle_click_cell.is_some()
-                || (left_click_cell.is_some()
-                    && (window.is_key_down(Key::LeftShift) || window.is_key_down(Key::RightShift)))
+            let mut left_click_cell = mouse_left.check(&cfg, &window);
+            let mut middle_click_cell = mouse_middle.check(&cfg, &window);
+            let mut right_click_cell = mouse_right.check(&cfg, &window);
+            if middle_click_cell.is_none()
+                && ((left_click_cell.is_some() && right_click_cell.is_some())
+                    || (left_click_cell.is_some()
+                        && (window.is_key_down(Key::LeftShift)
+                            || window.is_key_down(Key::RightShift))))
             {
+                middle_click_cell = left_click_cell.take();
+                right_click_cell = None;
+            }
+            if let Some((cell_x, cell_y)) = middle_click_cell {
+                // Chording/multi-open/whatever-you-want-to-call-it: if there are enough flags, open the cells all around.
                 let (cell_x, cell_y) = middle_click_cell.or(left_click_cell).unwrap();
                 match cells[cell_y][cell_x] {
                     Cell::Unopened | Cell::Flagged => {}
@@ -176,12 +160,23 @@ fn main() {
                 }
             } else {
                 // If the *other* button is clicked, it seems like a misclick.
-                let left_click_cell = left_click_cell.filter(|_| !mouse_right.held.is_some());
-                let right_click_cell = right_click_cell.filter(|_| !mouse_left.held.is_some());
+                left_click_cell = left_click_cell.filter(|_| !mouse_right.held.is_some());
+                right_click_cell = right_click_cell.filter(|_| !mouse_left.held.is_some());
+                if left_click_cell.is_some()
+                    && right_click_cell.is_none()
+                    && (window.is_key_down(Key::LeftCtrl) || window.is_key_down(Key::RightCtrl))
+                {
+                    right_click_cell = left_click_cell.take();
+                }
                 if let Some((cell_x, cell_y)) = left_click_cell {
                     let cell = &mut cells[cell_y][cell_x];
                     match cell {
                         Cell::Unopened => {
+                            if move_count == 0 {
+                                initialize_mines(&cfg, &mut rng, &mut mines, (cell_x, cell_y));
+                                count_cell_mines(&cfg, &mut mine_counts, &mines);
+                            }
+
                             fn open_cell(
                                 cfg: &Config,
                                 sx: usize,
@@ -201,6 +196,8 @@ fn main() {
                                 }
                             }
                             open_cell(&cfg, cell_x, cell_y, &mut cells, &mine_counts);
+
+                            move_count += 1;
 
                             has_lost = mines[cfg.cell_coords_to_idx(cell_x, cell_y)];
                             if has_lost {
@@ -241,14 +238,14 @@ fn main() {
                             *cell = Cell::Unopened;
                         }
                     }
-                } else if !first_loop {
+                } else {
                     was_input = false;
                 }
             }
         }
 
         // Skip updating the buffer until there is input.
-        if first_loop || was_input {
+        if move_count == 0 || was_input {
             for (i, px) in buffer.iter_mut().enumerate() {
                 let row = i / cfg.buffer_width;
                 let col = i % cfg.buffer_width;
@@ -338,7 +335,6 @@ fn main() {
             window.set_title(&format!("Minesweeper - {mines_left}💣"));
         }
 
-        first_loop = false;
         window
             .update_with_buffer(&buffer, cfg.buffer_width, cfg.buffer_height)
             .unwrap();
@@ -457,4 +453,49 @@ fn play_bell() {
     let mut stdout = std::io::stdout();
     stdout.write(b"\x07").unwrap();
     stdout.flush().unwrap();
+}
+
+fn initialize_mines(
+    cfg: &Config,
+    rng: &mut fastrand::Rng,
+    mines: &mut [bool],
+    first_click: (usize, usize),
+) {
+    const SAFE_CELLS_FOR_FIRST_CLICK: usize = 9; // 1 + 8 surrounding cells
+
+    let (click_x, click_y) = first_click;
+    let mut safe_zone = Vec::with_capacity(SAFE_CELLS_FOR_FIRST_CLICK);
+    safe_zone.push(cfg.cell_coords_to_idx(click_x, click_y));
+    do_surrounding(&cfg, click_x, click_y, |sx, sy| {
+        safe_zone.push(cfg.cell_coords_to_idx(sx, sy))
+    });
+    let mut mine_squares = rng.choose_multiple(
+        0..cfg.cell_rows * cfg.cell_cols,
+        cfg.mine_count + SAFE_CELLS_FOR_FIRST_CLICK,
+    );
+    mine_squares.sort();
+    let mut mines_placed = 0;
+    for i in 0..mines.len() {
+        if !safe_zone.contains(&i) && mine_squares.binary_search(&i).is_ok() {
+            mines[i] = true;
+            mines_placed += 1;
+            if mines_placed == cfg.mine_count {
+                break;
+            }
+        }
+    }
+    debug_assert_eq!(cfg.mine_count, mines.iter().filter(|&&b| b).count());
+}
+
+fn count_cell_mines(cfg: &Config, mine_counts: &mut [u8], mines: &[bool]) {
+    for cell_y in 0..cfg.cell_rows {
+        for cell_x in 0..cfg.cell_cols {
+            let cnt = &mut mine_counts[cfg.cell_coords_to_idx(cell_x, cell_y)];
+            do_surrounding(&cfg, cell_x, cell_y, |sx, sy| {
+                if mines[cfg.cell_coords_to_idx(sx, sy)] {
+                    *cnt += 1;
+                }
+            });
+        }
+    }
 }
