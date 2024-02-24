@@ -1,5 +1,11 @@
-use ab_glyph::{Font, FontRef};
+use ab_glyph::{Font, FontRef, ScaleFont};
 use minifb::{Key, MouseButton, MouseMode, Window};
+use std::time::{Duration, Instant};
+
+mod shared;
+mod text;
+
+use shared::lerp_colors;
 
 static FIRA_CODE_BYTES: &[u8] = include_bytes!("../fonts/Fira_Code/FiraCode-Regular.ttf");
 static NOTO_EMOJI_BYTES: &[u8] = include_bytes!("../fonts/Noto_Emoji/NotoEmoji-Regular.ttf");
@@ -14,6 +20,9 @@ const COLOR_TEXT_LIGHT: u32 = COLOR_UNOPENED;
 const COLOR_TEXT_DARK: u32 = COLOR_OPENED;
 const COLOR_TEXT_WRONG_FLAG: u32 = 0x00ff0000;
 
+const COLOR_MESSAGE_BOX: u32 = 0x00223377;
+const COLOR_MESSAGE_BORDER: u32 = 0x00ffffff;
+
 // In pixels
 const CELL_SIZE: usize = 32;
 const CELL_SIZE_F: f32 = 32.0;
@@ -26,7 +35,7 @@ fn main() {
     let mut cfg = Config {
         cell_cols: 10,
         cell_rows: 10,
-        mine_count: 25,
+        mine_count: 10,
         ..Config::default()
     };
     cfg.buffer_width = (CELL_SIZE + 1) * cfg.cell_cols + 1;
@@ -43,6 +52,8 @@ fn main() {
         Default::default(),
     )
     .unwrap();
+
+    let mut showing_message_since: Option<Instant> = None;
 
     let mut rng = fastrand::Rng::new();
 
@@ -66,133 +77,136 @@ fn main() {
     };
 
     let mut move_count = 0;
-    let mut has_won = false;
-    let mut has_lost = false;
+    let mut is_game_over = false;
+    let mut just_won = false;
+    let mut just_lost = false;
     while window.is_open() && !window.is_key_down(Key::Escape) {
         // Skip processing clicks when the game is over.
-        let mut was_input = !has_lost && !has_won;
-        if !has_lost && !has_won {
-            let mut left_click_cell = mouse_left.check(&cfg, &window);
-            let mut middle_click_cell = mouse_middle.check(&cfg, &window);
-            let mut right_click_cell = mouse_right.check(&cfg, &window);
-            if middle_click_cell.is_none()
-                && ((left_click_cell.is_some() && right_click_cell.is_some())
-                    || (left_click_cell.is_some()
-                        && (window.is_key_down(Key::LeftShift)
-                            || window.is_key_down(Key::RightShift))))
-            {
-                middle_click_cell = left_click_cell.take();
-                right_click_cell = None;
-            }
-            if let Some((cell_x, cell_y)) = middle_click_cell {
-                // Chording/multi-open/whatever-you-want-to-call-it: if there are enough flags, open the cells all around.
-                let (cell_x, cell_y) = middle_click_cell.or(left_click_cell).unwrap();
-                match cells[cell_y][cell_x] {
-                    Cell::Unopened | Cell::Flagged => {}
-                    Cell::Opened => {
-                        let mut flag_count = 0;
-                        do_surrounding(&cfg, cell_x, cell_y, |sx, sy| {
-                            if cells[sy][sx] == Cell::Flagged {
-                                flag_count += 1;
-                            }
-                        });
-                        let mine_count = mine_counts[cfg.cell_coords_to_idx(cell_x, cell_y)];
-                        if flag_count == mine_count {
-                            let mut opened_any_mines = false;
+        let mut was_input = !is_game_over;
+        'input_block: {
+            let accept_input = !is_game_over
+                || showing_message_since
+                    .map(|d| Instant::now() - d > Duration::from_secs_f32(1.0))
+                    .unwrap_or(false);
+            if accept_input {
+                let mut left_click_cell = mouse_left.check(&cfg, &window);
+                let mut middle_click_cell = mouse_middle.check(&cfg, &window);
+                let mut right_click_cell = mouse_right.check(&cfg, &window);
+                if showing_message_since.is_some() && left_click_cell.is_some() {
+                    was_input = true; // update window
+                    showing_message_since = None;
+                    break 'input_block;
+                }
+                if middle_click_cell.is_none()
+                    && ((left_click_cell.is_some() && right_click_cell.is_some())
+                        || (left_click_cell.is_some()
+                            && (window.is_key_down(Key::LeftShift)
+                                || window.is_key_down(Key::RightShift))))
+                {
+                    middle_click_cell = left_click_cell.take();
+                    right_click_cell = None;
+                }
+                if let Some((cell_x, cell_y)) = middle_click_cell {
+                    // Chording/multi-open/whatever-you-want-to-call-it: if there are enough flags, open the cells all around.
+                    match cells[cell_y][cell_x] {
+                        Cell::Unopened | Cell::Flagged => {}
+                        Cell::Opened => {
+                            let mut flag_count = 0;
                             do_surrounding(&cfg, cell_x, cell_y, |sx, sy| {
-                                let cell = &mut cells[sy][sx];
-                                match cell {
-                                    Cell::Unopened => {
-                                        *cell = Cell::Opened;
-                                        if mines[cfg.cell_coords_to_idx(sx, sy)] {
-                                            opened_any_mines = true;
-                                        }
-                                    }
-                                    Cell::Flagged | Cell::Opened => {}
+                                if cells[sy][sx] == Cell::Flagged {
+                                    flag_count += 1;
                                 }
                             });
-                            move_count += 1;
-                            // Don't return/break so that the board gets updated one last time.
-                            has_lost = opened_any_mines;
-                            if has_lost {
-                                do_loss();
+                            let mine_count = mine_counts[cfg.cell_coords_to_idx(cell_x, cell_y)];
+                            if flag_count == mine_count {
+                                let mut opened_any_mines = false;
+                                do_surrounding(&cfg, cell_x, cell_y, |sx, sy| {
+                                    let cell = &mut cells[sy][sx];
+                                    match cell {
+                                        Cell::Unopened => {
+                                            *cell = Cell::Opened;
+                                            if mines[cfg.cell_coords_to_idx(sx, sy)] {
+                                                opened_any_mines = true;
+                                            }
+                                        }
+                                        Cell::Flagged | Cell::Opened => {}
+                                    }
+                                });
+                                move_count += 1;
+                                // Don't return/break so that the board gets updated one last time.
+                                just_lost = opened_any_mines;
+                                just_won =
+                                    !just_lost && all_safe_cells_opened(&cfg, &mines, &cells);
+                                is_game_over = is_game_over || just_lost || just_won;
+                            } else {
+                                play_bell();
                             }
-                            has_won = !has_lost && all_safe_cells_opened(&cfg, &mines, &cells);
-                            if has_won {
-                                do_win();
-                            }
-                        } else {
-                            play_bell();
-                        }
-                    }
-                }
-            } else {
-                // If the *other* button is clicked, it seems like a misclick.
-                left_click_cell = left_click_cell.filter(|_| !mouse_right.held.is_some());
-                right_click_cell = right_click_cell.filter(|_| !mouse_left.held.is_some());
-                if left_click_cell.is_some()
-                    && right_click_cell.is_none()
-                    && (window.is_key_down(Key::LeftCtrl) || window.is_key_down(Key::RightCtrl))
-                {
-                    right_click_cell = left_click_cell.take();
-                }
-                if let Some((cell_x, cell_y)) = left_click_cell {
-                    let cell = &mut cells[cell_y][cell_x];
-                    match cell {
-                        Cell::Unopened => {
-                            if move_count == 0 {
-                                initialize_mines(&cfg, &mut rng, &mut mines, (cell_x, cell_y));
-                                count_cell_mines(&cfg, &mut mine_counts, &mines);
-                            }
-
-                            fn open_cell(
-                                cfg: &Config,
-                                sx: usize,
-                                sy: usize,
-                                cells: &mut Vec<Vec<Cell>>,
-                                mine_counts: &[u8],
-                            ) {
-                                let cell = &mut cells[sy][sx];
-                                if *cell != Cell::Unopened {
-                                    return;
-                                }
-                                *cell = Cell::Opened;
-                                if mine_counts[cfg.cell_coords_to_idx(sx, sy)] == 0 {
-                                    do_surrounding(&cfg, sx, sy, |ssx, ssy| {
-                                        open_cell(&cfg, ssx, ssy, cells, mine_counts)
-                                    });
-                                }
-                            }
-                            open_cell(&cfg, cell_x, cell_y, &mut cells, &mine_counts);
-
-                            move_count += 1;
-
-                            // Don't return/break so that the board gets updated one last time.
-                            has_lost = mines[cfg.cell_coords_to_idx(cell_x, cell_y)];
-                            if has_lost {
-                                do_loss();
-                            }
-                            has_won = !has_lost && all_safe_cells_opened(&cfg, &mines, &cells);
-                            if has_won {
-                                do_win();
-                            }
-                        }
-                        Cell::Opened => {}
-                        Cell::Flagged => {}
-                    }
-                } else if let Some((cell_x, cell_y)) = right_click_cell {
-                    let cell = &mut cells[cell_y][cell_x];
-                    match cell {
-                        Cell::Unopened => {
-                            *cell = Cell::Flagged;
-                        }
-                        Cell::Opened => {}
-                        Cell::Flagged => {
-                            *cell = Cell::Unopened;
                         }
                     }
                 } else {
-                    was_input = false;
+                    // If the *other* button is clicked, it seems like a misclick.
+                    left_click_cell = left_click_cell.filter(|_| !mouse_right.held.is_some());
+                    right_click_cell = right_click_cell.filter(|_| !mouse_left.held.is_some());
+                    if left_click_cell.is_some()
+                        && right_click_cell.is_none()
+                        && (window.is_key_down(Key::LeftCtrl) || window.is_key_down(Key::RightCtrl))
+                    {
+                        right_click_cell = left_click_cell.take();
+                    }
+                    if let Some((cell_x, cell_y)) = left_click_cell {
+                        let cell = &mut cells[cell_y][cell_x];
+                        match cell {
+                            Cell::Unopened => {
+                                if move_count == 0 {
+                                    initialize_mines(&cfg, &mut rng, &mut mines, (cell_x, cell_y));
+                                    count_cell_mines(&cfg, &mut mine_counts, &mines);
+                                }
+
+                                fn open_cell(
+                                    cfg: &Config,
+                                    sx: usize,
+                                    sy: usize,
+                                    cells: &mut Vec<Vec<Cell>>,
+                                    mine_counts: &[u8],
+                                ) {
+                                    let cell = &mut cells[sy][sx];
+                                    if *cell != Cell::Unopened {
+                                        return;
+                                    }
+                                    *cell = Cell::Opened;
+                                    if mine_counts[cfg.cell_coords_to_idx(sx, sy)] == 0 {
+                                        do_surrounding(&cfg, sx, sy, |ssx, ssy| {
+                                            open_cell(&cfg, ssx, ssy, cells, mine_counts)
+                                        });
+                                    }
+                                }
+                                open_cell(&cfg, cell_x, cell_y, &mut cells, &mine_counts);
+
+                                move_count += 1;
+
+                                // Don't return/break so that the board gets updated one last time.
+                                just_lost = mines[cfg.cell_coords_to_idx(cell_x, cell_y)];
+                                just_won =
+                                    !just_lost && all_safe_cells_opened(&cfg, &mines, &cells);
+                                is_game_over = is_game_over || just_lost || just_won;
+                            }
+                            Cell::Opened => {}
+                            Cell::Flagged => {}
+                        }
+                    } else if let Some((cell_x, cell_y)) = right_click_cell {
+                        let cell = &mut cells[cell_y][cell_x];
+                        match cell {
+                            Cell::Unopened => {
+                                *cell = Cell::Flagged;
+                            }
+                            Cell::Opened => {}
+                            Cell::Flagged => {
+                                *cell = Cell::Unopened;
+                            }
+                        }
+                    } else {
+                        was_input = false;
+                    }
                 }
             }
         }
@@ -224,7 +238,7 @@ fn main() {
                     let i = cfg.cell_coords_to_idx(cell_x, cell_y);
                     match cell {
                         Cell::Unopened => {
-                            if (has_lost || has_won) && mines[i] {
+                            if is_game_over && mines[i] {
                                 draw_char_in_cell(
                                     &cfg,
                                     &emoji_font,
@@ -271,7 +285,7 @@ fn main() {
                                 &cfg,
                                 &emoji_font,
                                 '🚩',
-                                if (has_lost || has_won) && !mines[i] {
+                                if is_game_over && !mines[i] {
                                     COLOR_TEXT_WRONG_FLAG
                                 } else {
                                     COLOR_TEXT_DARK
@@ -285,6 +299,19 @@ fn main() {
                 }
             }
 
+            if just_won || just_lost {
+                let font = font.as_scaled(CELL_SIZE_F);
+                show_message(
+                    &cfg,
+                    if just_won { "You won!" } else { "You lost!" },
+                    font,
+                    &mut buffer,
+                );
+                showing_message_since = Some(Instant::now());
+                just_won = false;
+                just_lost = false;
+            }
+
             window.set_title(&format!("Minesweeper - {mines_left}💣"));
         }
 
@@ -294,20 +321,13 @@ fn main() {
     }
 }
 
-fn do_win() {
-    println!("You've won!");
-}
-
-fn do_loss() {
-    println!("You've lost!");
-}
-
 fn initialize_mines(
     cfg: &Config,
     rng: &mut fastrand::Rng,
     mines: &mut [bool],
     first_click: (usize, usize),
 ) {
+    // The number of cells that *must* be free of mines at the start of the game.
     const SAFE_CELLS_FOR_FIRST_CLICK: usize = 9; // 1 + 8 surrounding cells
 
     let (click_x, click_y) = first_click;
@@ -351,9 +371,7 @@ fn all_safe_cells_opened(cfg: &Config, mines: &[bool], cells: &Vec<Vec<Cell>>) -
     !cells
         .iter()
         .enumerate()
-        .flat_map(|(y, row)| {
-            row.iter().enumerate().map(move |(x, _)| (x, y))
-        })
+        .flat_map(|(y, row)| row.iter().enumerate().map(move |(x, _)| (x, y)))
         .filter(|&(x, y)| !mines[cfg.cell_coords_to_idx(x, y)])
         .any(|(x, y)| {
             if cells[y][x] == Cell::Unopened {
@@ -365,6 +383,72 @@ fn all_safe_cells_opened(cfg: &Config, mines: &[bool], cells: &Vec<Vec<Cell>>) -
                 false
             }
         })
+}
+
+fn show_message<F, FS>(cfg: &Config, msg: &str, font: FS, mut buffer: &mut [u32])
+where
+    F: Font,
+    FS: ScaleFont<F>,
+{
+    let mut glyphs = Vec::new();
+    let glyphs_bounds = text::layout_paragraph(
+        &font,
+        ab_glyph::point(0.0, 0.0),
+        cfg.buffer_width as f32 / 2.0,
+        msg,
+        &mut glyphs,
+    );
+    let glyphs_width = glyphs_bounds.width();
+    let left_margin = ((cfg.buffer_width as f32 - glyphs_width) / 2.0) as usize;
+    let glyphs_height = glyphs_bounds.height();
+    let top_margin = ((cfg.buffer_height as f32 - glyphs_height) / 2.0) as usize;
+    // Draw box with outline (TODO: make this less horrible)
+    {
+        let box_padding_left_right = font.scale().x as usize;
+        let box_padding_top_bottom = font.scale().y as usize;
+        let box_left = left_margin - box_padding_left_right;
+        let box_width = box_padding_left_right * 2 + glyphs_width as usize;
+        let box_top = top_margin - box_padding_top_bottom;
+        let box_bottom = top_margin + glyphs_height as usize + box_padding_top_bottom;
+        let outline = 2;
+        let draw_row_color = |buffer: &mut [u32], row, start, width, color| {
+            let row_start_idx = row * cfg.buffer_width + box_left + start;
+            let row_end_idx = row_start_idx + width;
+            buffer[row_start_idx..row_end_idx + 1].fill(color);
+        };
+        for y in box_top..box_bottom + 1 {
+            draw_row_color(&mut buffer, y, 0, box_width, COLOR_MESSAGE_BOX);
+        }
+        for y in box_top..box_bottom + 1 {
+            draw_row_color(&mut buffer, y, 0, outline, COLOR_MESSAGE_BORDER);
+            draw_row_color(
+                &mut buffer,
+                y,
+                box_width - outline,
+                outline,
+                COLOR_MESSAGE_BORDER,
+            );
+        }
+        for y in box_top..box_top + outline + 1 {
+            draw_row_color(&mut buffer, y, 0, box_width, COLOR_MESSAGE_BORDER);
+        }
+        for y in box_bottom - outline..box_bottom + 1 {
+            draw_row_color(&mut buffer, y, 0, box_width, COLOR_MESSAGE_BORDER);
+        }
+    }
+    for glyph in glyphs {
+        if let Some(outlined) = font.outline_glyph(glyph) {
+            let bounds = outlined.px_bounds();
+            let offset_x = left_margin + bounds.min.x as usize;
+            let offset_y = top_margin + bounds.min.y as usize;
+            outlined.draw(|x, y, c| {
+                let x = x as usize + offset_x;
+                let y = y as usize + offset_y;
+                let i = y * cfg.buffer_width + x;
+                buffer[i] = lerp_colors(buffer[i], 0x00ffffff, c);
+            });
+        }
+    }
 }
 
 #[derive(Default)]
@@ -475,7 +559,6 @@ fn do_surrounding(cfg: &Config, cell_x: usize, cell_y: usize, mut f: impl FnMut(
     }
 }
 
-
 /// Draws a char at x,y in the (flat) buffer.
 fn draw_char_in_cell(
     cfg: &Config,
@@ -503,23 +586,6 @@ fn draw_char_in_cell(
         // Sometimes c is > 1.0 🤷
         buffer[i] = lerp_colors(buffer[i], color, f32::min(c, 1.0));
     });
-}
-
-fn lerp_colors(min: u32, max: u32, amt: f32) -> u32 {
-    let min_bytes = min.to_be_bytes();
-    let max_bytes = max.to_be_bytes();
-    u32::from_be_bytes([
-        0, // always zero
-        lerp_u8(min_bytes[1], max_bytes[1], amt),
-        lerp_u8(min_bytes[2], max_bytes[2], amt),
-        lerp_u8(min_bytes[3], max_bytes[3], amt),
-    ])
-}
-
-fn lerp_u8(min: u8, max: u8, amt: f32) -> u8 {
-    let min = i16::from(min);
-    let max = i16::from(max);
-    (min + ((max - min) as f32 * amt) as i16) as u8
 }
 
 fn play_bell() {
