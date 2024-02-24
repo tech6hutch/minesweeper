@@ -1,5 +1,34 @@
 use ab_glyph::{point, Font, Glyph, Point, Rect, ScaleFont};
 
+use crate::shared::lerp_colors;
+
+pub fn draw_glyphs<F, FS, G>(
+    glyphs: G,
+    (left_margin, top_margin): (usize, usize),
+    font: &FS,
+    color: u32,
+    mut buffer: &mut [u32],
+    buffer_width: usize,
+) where
+    F: Font,
+    FS: ScaleFont<F>,
+    G: Iterator<Item = Glyph>,
+{
+    for glyph in glyphs {
+        if let Some(outlined) = font.outline_glyph(glyph) {
+            let bounds = outlined.px_bounds();
+            let offset_x = left_margin + bounds.min.x as usize;
+            let offset_y = top_margin + bounds.min.y as usize;
+            outlined.draw(|x, y, c| {
+                let x = x as usize + offset_x;
+                let y = y as usize + offset_y;
+                let i = y * buffer_width + x;
+                buffer[i] = lerp_colors(buffer[i], color, c);
+            });
+        }
+    }
+}
+
 // Based off an example in the ab_glyph documentation.
 pub fn layout_paragraph<F, FS>(
     font: &FS,

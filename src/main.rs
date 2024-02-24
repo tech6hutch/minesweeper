@@ -2,36 +2,19 @@ use ab_glyph::{Font, FontRef, ScaleFont};
 use minifb::{Key, MouseButton, MouseMode, Window};
 use std::time::{Duration, Instant};
 
+mod setup_window;
 mod shared;
 mod text;
 
-use shared::lerp_colors;
-
-static FIRA_CODE_BYTES: &[u8] = include_bytes!("../fonts/Fira_Code/FiraCode-Regular.ttf");
-static NOTO_EMOJI_BYTES: &[u8] = include_bytes!("../fonts/Noto_Emoji/NotoEmoji-Regular.ttf");
-static NOTO_SANS_JP_BYTES: &[u8] = include_bytes!("../fonts/Noto_Sans_JP/NotoSansJP-Regular.ttf");
-
-const COLOR_OOB: u32 = 0x00000000;
-const COLOR_LINE: u32 = 0x00cccc00;
-const COLOR_UNOPENED: u32 = 0x00ffff00;
-const COLOR_OPENED: u32 = 0x00777700;
-
-const COLOR_TEXT_LIGHT: u32 = COLOR_UNOPENED;
-const COLOR_TEXT_DARK: u32 = COLOR_OPENED;
-const COLOR_TEXT_WRONG_FLAG: u32 = 0x00ff0000;
-
-const COLOR_MESSAGE_BOX: u32 = 0x00223377;
-const COLOR_MESSAGE_BORDER: u32 = 0x00ffffff;
-
-// In pixels
-const CELL_SIZE: usize = 32;
-const CELL_SIZE_F: f32 = 32.0;
+use shared::*;
 
 static DIGITS_EN: [char; 10] = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
 // Unlike English, these aren't in order in Unicode, so we can't just add a constant to convert.
 static DIGITS_JP: [char; 10] = ['0', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
 
 fn main() {
+    _ = setup_window::run();
+
     let mut cfg = Config {
         cell_cols: 10,
         cell_rows: 10,
@@ -41,9 +24,9 @@ fn main() {
     cfg.buffer_width = (CELL_SIZE + 1) * cfg.cell_cols + 1;
     cfg.buffer_height = (CELL_SIZE + 1) * cfg.cell_rows + 1;
 
-    let font = FontRef::try_from_slice(NOTO_SANS_JP_BYTES).unwrap();
+    let font = FontRef::try_from_slice(FIRA_CODE_BYTES).unwrap();
     let emoji_font = FontRef::try_from_slice(NOTO_EMOJI_BYTES).unwrap();
-    let digits = DIGITS_JP;
+    let digits = DIGITS_EN;
     let mut buffer = vec![0u32; cfg.buffer_width * cfg.buffer_height];
     let mut window = Window::new(
         "Minesweeper",
@@ -416,9 +399,13 @@ where
             let row_end_idx = row_start_idx + width;
             buffer[row_start_idx..row_end_idx + 1].fill(color);
         };
-        for y in box_top..box_bottom + 1 {
-            draw_row_color(&mut buffer, y, 0, box_width, COLOR_MESSAGE_BOX);
-        }
+        draw_rectangle(
+            (box_left, box_top),
+            (box_width, box_bottom - box_top),
+            COLOR_MESSAGE_BOX,
+            &mut buffer,
+            cfg.buffer_width,
+        );
         for y in box_top..box_bottom + 1 {
             draw_row_color(&mut buffer, y, 0, outline, COLOR_MESSAGE_BORDER);
             draw_row_color(
@@ -436,58 +423,7 @@ where
             draw_row_color(&mut buffer, y, 0, box_width, COLOR_MESSAGE_BORDER);
         }
     }
-    for glyph in glyphs {
-        if let Some(outlined) = font.outline_glyph(glyph) {
-            let bounds = outlined.px_bounds();
-            let offset_x = left_margin + bounds.min.x as usize;
-            let offset_y = top_margin + bounds.min.y as usize;
-            outlined.draw(|x, y, c| {
-                let x = x as usize + offset_x;
-                let y = y as usize + offset_y;
-                let i = y * cfg.buffer_width + x;
-                buffer[i] = lerp_colors(buffer[i], 0x00ffffff, c);
-            });
-        }
-    }
-}
-
-#[derive(Default)]
-struct Config {
-    cell_cols: usize,
-    cell_rows: usize,
-    mine_count: usize,
-    buffer_width: usize,
-    buffer_height: usize,
-}
-impl Config {
-    fn board_width(&self) -> usize {
-        (CELL_SIZE + 1) * self.cell_cols
-    }
-    fn board_height(&self) -> usize {
-        (CELL_SIZE + 1) * self.cell_rows
-    }
-
-    #[inline]
-    fn cell_coords_to_idx(&self, x: usize, y: usize) -> usize {
-        y * self.cell_cols + x
-    }
-
-    /// Converts pixel coords to cell coords.
-    fn pos_to_cell(&self, (x, y): (usize, usize)) -> Option<(usize, usize)> {
-        if x < self.board_width()
-            && x % (CELL_SIZE + 1) != 0
-            && y < self.board_height()
-            && y % (CELL_SIZE + 1) != 0
-        {
-            Some((x / (CELL_SIZE + 1), y / (CELL_SIZE + 1)))
-        } else {
-            None
-        }
-    }
-    fn pos_to_cell_f(&self, (x, y): (f32, f32)) -> Option<(usize, usize)> {
-        // Truncate the floats
-        self.pos_to_cell((x as usize, y as usize))
-    }
+    text::draw_glyphs(glyphs.into_iter(), (left_margin, top_margin), &font, COLOR_MESSAGE_TEXT, &mut buffer, cfg.buffer_width);
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
