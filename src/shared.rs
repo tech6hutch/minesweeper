@@ -79,7 +79,7 @@ pub fn draw_rectangle(
     (left, top): (usize, usize),
     (width, height): (usize, usize),
     color: u32,
-    mut buffer: &mut [u32],
+    buffer: &mut [u32],
     buffer_width: usize,
 ) {
     for y in top..top + height + 1 {

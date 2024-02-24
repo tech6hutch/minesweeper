@@ -385,45 +385,38 @@ where
     let left_margin = ((cfg.buffer_width as f32 - glyphs_width) / 2.0) as usize;
     let glyphs_height = glyphs_bounds.height();
     let top_margin = ((cfg.buffer_height as f32 - glyphs_height) / 2.0) as usize;
-    // Draw box with outline (TODO: make this less horrible)
+    // Draw box with outline
     {
         let box_padding_left_right = font.scale().x as usize;
         let box_padding_top_bottom = font.scale().y as usize;
         let box_left = left_margin - box_padding_left_right;
-        let box_width = box_padding_left_right * 2 + glyphs_width as usize;
         let box_top = top_margin - box_padding_top_bottom;
-        let box_bottom = top_margin + glyphs_height as usize + box_padding_top_bottom;
+        let box_width = box_padding_left_right * 2 + glyphs_width as usize;
+        let box_height = box_padding_top_bottom * 2 + glyphs_height as usize;
         let outline = 2;
-        let draw_row_color = |buffer: &mut [u32], row, start, width, color| {
-            let row_start_idx = row * cfg.buffer_width + box_left + start;
-            let row_end_idx = row_start_idx + width;
-            buffer[row_start_idx..row_end_idx + 1].fill(color);
-        };
         draw_rectangle(
             (box_left, box_top),
-            (box_width, box_bottom - box_top),
+            (box_width, box_height),
+            COLOR_MESSAGE_BORDER,
+            &mut buffer,
+            cfg.buffer_width,
+        );
+        draw_rectangle(
+            (box_left + outline, box_top + outline),
+            (box_width - outline * 2, box_height - outline * 2),
             COLOR_MESSAGE_BOX,
             &mut buffer,
             cfg.buffer_width,
         );
-        for y in box_top..box_bottom + 1 {
-            draw_row_color(&mut buffer, y, 0, outline, COLOR_MESSAGE_BORDER);
-            draw_row_color(
-                &mut buffer,
-                y,
-                box_width - outline,
-                outline,
-                COLOR_MESSAGE_BORDER,
-            );
-        }
-        for y in box_top..box_top + outline + 1 {
-            draw_row_color(&mut buffer, y, 0, box_width, COLOR_MESSAGE_BORDER);
-        }
-        for y in box_bottom - outline..box_bottom + 1 {
-            draw_row_color(&mut buffer, y, 0, box_width, COLOR_MESSAGE_BORDER);
-        }
     }
-    text::draw_glyphs(glyphs.into_iter(), (left_margin, top_margin), &font, COLOR_MESSAGE_TEXT, &mut buffer, cfg.buffer_width);
+    text::draw_glyphs(
+        glyphs.into_iter(),
+        (left_margin, top_margin),
+        &font,
+        COLOR_MESSAGE_TEXT,
+        &mut buffer,
+        cfg.buffer_width,
+    );
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]

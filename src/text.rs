@@ -7,7 +7,7 @@ pub fn draw_glyphs<F, FS, G>(
     (left_margin, top_margin): (usize, usize),
     font: &FS,
     color: u32,
-    mut buffer: &mut [u32],
+    buffer: &mut [u32],
     buffer_width: usize,
 ) where
     F: Font,
