@@ -1,4 +1,5 @@
 use ab_glyph::{Font, FontRef, ScaleFont};
+use glam::IVec2;
 use minifb::{Key, MouseButton, MouseMode, Window};
 use std::time::{Duration, Instant};
 
@@ -395,15 +396,18 @@ where
         let box_height = box_padding_top_bottom * 2 + glyphs_height as usize;
         let outline = 2;
         draw_rectangle(
-            (box_left, box_top),
-            (box_width, box_height),
+            IVec2::new(box_left as i32, box_top as i32),
+            IVec2::new(box_width as i32, box_height as i32),
             COLOR_MESSAGE_BORDER,
             &mut buffer,
             cfg.buffer_width,
         );
         draw_rectangle(
-            (box_left + outline, box_top + outline),
-            (box_width - outline * 2, box_height - outline * 2),
+            IVec2::new((box_left + outline) as i32, (box_top + outline) as i32),
+            IVec2::new(
+                (box_width - outline * 2) as i32,
+                (box_height - outline * 2) as i32,
+            ),
             COLOR_MESSAGE_BOX,
             &mut buffer,
             cfg.buffer_width,

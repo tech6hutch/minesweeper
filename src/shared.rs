@@ -1,3 +1,5 @@
+use glam::IVec2;
+
 pub static FIRA_CODE_BYTES: &[u8] = include_bytes!("../fonts/Fira_Code/FiraCode-Regular.ttf");
 pub static NOTO_EMOJI_BYTES: &[u8] = include_bytes!("../fonts/Noto_Emoji/NotoEmoji-Regular.ttf");
 pub static NOTO_SANS_JP_BYTES: &[u8] =
@@ -17,6 +19,7 @@ pub const COLOR_MESSAGE_BORDER: u32 = 0x00ffffff;
 pub const COLOR_MESSAGE_TEXT: u32 = COLOR_MESSAGE_BORDER;
 
 pub const COLOR_BUTTON: u32 = 0x00CFD495;
+pub const COLOR_BUTTON_BORDER: u32 = COLOR_MESSAGE_BORDER;
 pub const COLOR_BUTTON_TEXT: u32 = 0x00000000;
 
 // In pixels
@@ -76,12 +79,16 @@ impl Default for Lang {
 }
 
 pub fn draw_rectangle(
-    (left, top): (usize, usize),
-    (width, height): (usize, usize),
+    top_left: IVec2,
+    size: IVec2,
     color: u32,
     buffer: &mut [u32],
     buffer_width: usize,
 ) {
+    let left = top_left.x as usize;
+    let top = top_left.y as usize;
+    let width = size.x as usize;
+    let height = size.y as usize;
     for y in top..top + height + 1 {
         let row_start_idx = y * buffer_width + left;
         let row_end_idx = row_start_idx + width;
