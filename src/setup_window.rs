@@ -98,21 +98,31 @@ fn button(state: &mut GuiState, text: &str) -> bool {
         x: glyphs_width + BUTTON_PADDING_HORIZONTAL * 2,
         y: glyphs_height + BUTTON_PADDING_VERTICAL * 2,
     };
+    let mut caret = state.caret;
     shared::draw_rectangle(
-        state.caret,
+        caret,
         size + IVec2::splat(BORDER_SIZE * 2),
         shared::COLOR_BUTTON_BORDER,
         &mut state.buffer,
         state.buffer_width,
     );
+    caret += IVec2::splat(BORDER_SIZE);
     shared::draw_rectangle(
-        state.caret + IVec2::splat(BORDER_SIZE),
+        caret,
         size,
         shared::COLOR_BUTTON,
         &mut state.buffer,
         state.buffer_width,
     );
-    // TODO: actually draw glyphs
+    caret += IVec2::new(BUTTON_PADDING_HORIZONTAL, BUTTON_PADDING_VERTICAL);
+    text::draw_glyphs(
+        glyphs.iter().cloned(),
+        caret,
+        state.font.as_ref(),
+        shared::COLOR_BUTTON_TEXT,
+        &mut state.buffer,
+        state.buffer_width,
+    );
     // TODO: check for click and return it
     // TODO: change button appearance depending on clicking
     false

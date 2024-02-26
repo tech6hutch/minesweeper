@@ -415,7 +415,7 @@ where
     }
     text::draw_glyphs(
         glyphs.into_iter(),
-        (left_margin, top_margin),
+        IVec2::new(left_margin as i32, top_margin as i32),
         &font,
         COLOR_MESSAGE_TEXT,
         &mut buffer,

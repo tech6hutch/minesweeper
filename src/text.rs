@@ -1,10 +1,14 @@
 use ab_glyph::{point, Font, Glyph, Point, Rect, ScaleFont};
+use glam::IVec2;
 
 use crate::shared::lerp_colors;
 
 pub fn draw_glyphs<F, FS, G>(
     glyphs: G,
-    (left_margin, top_margin): (usize, usize),
+    IVec2 {
+        x: left_margin,
+        y: top_margin,
+    }: IVec2,
     font: &FS,
     color: u32,
     buffer: &mut [u32],
@@ -17,12 +21,12 @@ pub fn draw_glyphs<F, FS, G>(
     for glyph in glyphs {
         if let Some(outlined) = font.outline_glyph(glyph) {
             let bounds = outlined.px_bounds();
-            let offset_x = left_margin + bounds.min.x as usize;
-            let offset_y = top_margin + bounds.min.y as usize;
+            let offset_x = left_margin + bounds.min.x as i32;
+            let offset_y = top_margin + bounds.min.y as i32;
             outlined.draw(|x, y, c| {
-                let x = x as usize + offset_x;
-                let y = y as usize + offset_y;
-                let i = y * buffer_width + x;
+                let x = x as i32 + offset_x;
+                let y = y as i32 + offset_y;
+                let i = y as usize * buffer_width + x as usize;
                 buffer[i] = lerp_colors(buffer[i], color, c);
             });
         }
