@@ -27,39 +27,30 @@ pub fn run() -> Config {
         .unwrap(),
         buffer: vec![0u32; WINDOW_WIDTH * WINDOW_HEIGHT],
         buffer_width: WINDOW_WIDTH,
+
+        mouse_pos: None,
+        _mouse_was_oob: false,
+        is_left_click_down: false,
+        left_click_down_pos: None,
+
         font: Box::new(font_en),
         glyphs_cache: HashMap::new(),
         caret: IVec2::new(5, 5),
     };
 
+    let mut first_loop = true;
     while state.window.is_open() && !state.window.is_key_down(Key::Escape) {
-        state.buffer.fill(shared::COLOR_MESSAGE_BOX);
+        let was_input = state.update_input();
 
-        /*shared::draw_rectangle(
-            IVec2::new(5, 5),
-            IVec2::new(100, state.font.scale().y as i32 + 10),
-            shared::COLOR_BUTTON,
-            &mut state.buffer,
-            state.buffer_width,
-        );
-        let mut btn_glyphs = Vec::new();
-        _ = text::layout_paragraph(
-            state.font.as_ref(),
-            ab_glyph::point(10.0, 10.0),
-            f32::INFINITY,
-            "English",
-            &mut btn_glyphs,
-        );
-        text::draw_glyphs(
-            btn_glyphs.into_iter(),
-            (0, 0),
-            state.font.as_ref(),
-            shared::COLOR_BUTTON_TEXT,
-            &mut state.buffer,
-            state.buffer_width,
-        );*/
+        if was_input || first_loop {
+            state.buffer.fill(shared::COLOR_MESSAGE_BOX);
 
-        button(&mut state, "English");
+            if button(&mut state, "English") {
+                println!("button clicked");
+            }
+        }
+
+        first_loop = false;
 
         state
             .window
@@ -74,9 +65,80 @@ struct GuiState<'a> {
     window: minifb::Window,
     buffer: Vec<u32>,
     buffer_width: usize,
+
+    /// The current mouse position. Present if there was a click (now or on the previous frame) and it was within the window.
+    mouse_pos: Option<IVec2>,
+    _mouse_was_oob: bool,
+    /// Whether the mouse button is currently down.
+    is_left_click_down: bool,
+    /// The position of the mouse when the mouse button was first pressed down.
+    left_click_down_pos: Option<IVec2>,
+
     font: Box<ab_glyph::PxScaleFont<&'a FontRef<'static>>>,
     glyphs_cache: HashMap<Box<str>, Vec<Glyph>>,
+    /// Current position for drawing widgets
     caret: IVec2,
+}
+
+impl GuiState<'_> {
+    /// Returns whether there was any input.
+    fn update_input(&mut self) -> bool {
+        let was_left_click_down = self.is_left_click_down;
+        self.is_left_click_down = self.window.get_mouse_down(minifb::MouseButton::Left);
+        let mut mouse_is_oob = false;
+        // Skip getting the mouse position if there aren't clicks to handle.
+        self.mouse_pos = if was_left_click_down || self.is_left_click_down {
+            if let Some((x_f, y_f)) = self.window.get_mouse_pos(minifb::MouseMode::Discard) {
+                Some(IVec2 {
+                    x: x_f as i32,
+                    y: y_f as i32,
+                })
+            } else {
+                mouse_is_oob = true;
+                None
+            }
+        } else {
+            None
+        };
+        match (was_left_click_down, self.is_left_click_down) {
+            // The mouse button is being held, keep the initial value
+            (true, true) => {}
+            // Keep the value around for the next frame, unless...
+            (true, false) => {
+                if self._mouse_was_oob {
+                    // minifb doesn't notice mouse btn releases until it returns to the window; fix for
+                    // https://github.com/emoon/rust_minifb/issues/345
+                    self.left_click_down_pos = None;
+                }
+            }
+            // Record initial click position
+            (false, true) => self.left_click_down_pos = self.mouse_pos,
+            // We're done with any value in it now
+            (false, false) => self.left_click_down_pos = None,
+        }
+        self._mouse_was_oob = mouse_is_oob;
+
+        was_left_click_down || self.is_left_click_down
+    }
+
+    /// Gets the current mouse position, cached.
+    // TODO: remove if unneeded
+    fn get_mouse_pos(&mut self) -> IVec2 {
+        if let Some(pos) = self.mouse_pos {
+            pos
+        } else {
+            let (x_f, y_f) = self
+                .window
+                .get_mouse_pos(minifb::MouseMode::Discard)
+                .unwrap();
+            let pos = IVec2 {
+                x: x_f as i32,
+                y: y_f as i32,
+            };
+            self.mouse_pos = Some(pos);
+            pos
+        }
+    }
 }
 
 const BORDER_SIZE: i32 = 2;
@@ -107,6 +169,7 @@ fn button(state: &mut GuiState, text: &str) -> bool {
         state.buffer_width,
     );
     caret += IVec2::splat(BORDER_SIZE);
+    let btn_pos_min = caret;
     shared::draw_rectangle(
         caret,
         size,
@@ -123,9 +186,23 @@ fn button(state: &mut GuiState, text: &str) -> bool {
         &mut state.buffer,
         state.buffer_width,
     );
-    // TODO: check for click and return it
+
+    let btn_bounds = (btn_pos_min, btn_pos_min + size);
+    let mut clicked = false;
+    if !state.is_left_click_down {
+        if let Some(down_pos) = state.left_click_down_pos {
+            let up_pos = state.mouse_pos.unwrap();
+            if point_in_rect(down_pos, btn_bounds) && point_in_rect(up_pos, btn_bounds) {
+                clicked = true;
+            }
+        }
+    }
+    clicked
     // TODO: change button appearance depending on clicking
-    false
+}
+
+fn point_in_rect(IVec2 { x, y }: IVec2, (min, max): (IVec2, IVec2)) -> bool {
+    min.x <= x && x <= max.x && min.y <= y && y <= max.y
 }
 
 trait StrHashMap {
