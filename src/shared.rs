@@ -76,6 +76,7 @@ impl Config {
     }
 }
 
+#[derive(Copy, Clone)]
 pub enum Lang {
     En,
     Jp,
