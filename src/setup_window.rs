@@ -120,25 +120,6 @@ impl GuiState<'_> {
 
         was_left_click_down || self.is_left_click_down
     }
-
-    /// Gets the current mouse position, cached.
-    // TODO: remove if unneeded
-    fn get_mouse_pos(&mut self) -> IVec2 {
-        if let Some(pos) = self.mouse_pos {
-            pos
-        } else {
-            let (x_f, y_f) = self
-                .window
-                .get_mouse_pos(minifb::MouseMode::Discard)
-                .unwrap();
-            let pos = IVec2 {
-                x: x_f as i32,
-                y: y_f as i32,
-            };
-            self.mouse_pos = Some(pos);
-            pos
-        }
-    }
 }
 
 const BORDER_SIZE: i32 = 2;
