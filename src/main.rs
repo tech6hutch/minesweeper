@@ -14,20 +14,13 @@ static DIGITS_EN: [char; 10] = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'
 static DIGITS_JP: [char; 10] = ['0', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
 
 fn main() {
-    _ = setup_window::run();
-
-    let mut cfg = Config {
-        cell_cols: 10,
-        cell_rows: 10,
-        mine_count: 10,
-        ..Config::default()
-    };
+    let mut cfg = setup_window::run();
     cfg.buffer_width = (CELL_SIZE + 1) * cfg.cell_cols + 1;
     cfg.buffer_height = (CELL_SIZE + 1) * cfg.cell_rows + 1;
 
-    let font = FontRef::try_from_slice(FIRA_CODE_BYTES).unwrap();
+    let font = FontRef::try_from_slice(cfg.en_jp(FIRA_CODE_BYTES, NOTO_SANS_JP_BYTES)).unwrap();
     let emoji_font = FontRef::try_from_slice(NOTO_EMOJI_BYTES).unwrap();
-    let digits = DIGITS_EN;
+    let digits = cfg.en_jp(DIGITS_EN, DIGITS_JP);
     let mut buffer = vec![0u32; cfg.buffer_width * cfg.buffer_height];
     let mut window = Window::new(
         "Minesweeper",
@@ -287,7 +280,11 @@ fn main() {
                 let font = font.as_scaled(CELL_SIZE_F);
                 show_message(
                     &cfg,
-                    if just_won { "You won!" } else { "You lost!" },
+                    if just_won {
+                        cfg.en_jp("You won!", "やった！")
+                    } else {
+                        cfg.en_jp("You lost!", "負けました。")
+                    },
                     font,
                     &mut buffer,
                 );

@@ -46,6 +46,10 @@ pub struct Config {
 }
 
 impl Config {
+    pub fn en_jp<T>(&self, t_en: T, t_jp: T) -> T {
+        self.lang.en_jp(t_en, t_jp)
+    }
+
     pub fn board_width(&self) -> usize {
         (CELL_SIZE + 1) * self.cell_cols
     }
@@ -76,15 +80,18 @@ impl Config {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default, PartialEq, Eq)]
 pub enum Lang {
+    #[default]
     En,
     Jp,
 }
-
-impl Default for Lang {
-    fn default() -> Lang {
-        Lang::En
+impl Lang {
+    pub fn en_jp<T>(self, t_en: T, t_jp: T) -> T {
+        match self {
+            Lang::En => t_en,
+            Lang::Jp => t_jp,
+        }
     }
 }
 

@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use crate::shared::{self, Config, Lang};
 use crate::text;
 
-const WINDOW_WIDTH: usize = 200;
+const WINDOW_WIDTH: usize = 300;
 const WINDOW_HEIGHT: usize = 200;
 const WINDOW_PADDING: i32 = 5;
 
@@ -44,25 +44,29 @@ pub fn run() -> Config {
         padding: IVec2::splat(WINDOW_PADDING),
     };
 
-    let mut first_loop = true;
+    let mut needs_update = true;
     while state.window.is_open() && !state.window.is_key_down(Key::Escape) {
         let was_input = state.update_input();
 
-        if was_input || first_loop {
+        if was_input || needs_update {
+            needs_update = false;
             state.buffer.fill(shared::COLOR_MESSAGE_BOX);
             state.caret = state.caret_start;
+
+            label(&mut state, lang.en_jp("Language:", "言語：").into());
 
             let mut lang_btn = 0;
             if button_set(
                 &mut state,
-                &["English".into(), ("日本語", Lang::Jp).into()],
+                &[("English", Lang::En).into(), ("日本語", Lang::Jp).into()],
                 &mut lang_btn,
             ) {
                 println!("button {lang_btn} clicked");
+                lang = [Lang::En, Lang::Jp][usize::from(lang_btn)];
+                state.font = [state.font_en, state.font_jp][usize::from(lang_btn)];
+                needs_update = true;
             }
         }
-
-        first_loop = false;
 
         state
             .window
@@ -70,7 +74,13 @@ pub fn run() -> Config {
             .unwrap();
     }
 
-    Config::default()
+    Config {
+        lang,
+        cell_cols: 10,
+        cell_rows: 10,
+        mine_count: 10,
+        ..Config::default()
+    }
 }
 
 type GuiFontRef<'a> = &'a PxScaleFont<&'a FontRef<'static>>;
@@ -191,6 +201,46 @@ impl<'a> From<(&'a str, Lang)> for StrInLang<'a> {
 const BORDER_SIZE: i32 = 2;
 const BUTTON_PADDING_HORIZONTAL: i32 = 10;
 const BUTTON_PADDING_VERTICAL: i32 = 10;
+
+fn label(state: &mut GuiState, text: StrInLang) {
+    let font = state.font_for(text);
+    let glyphs = state.glyphs_cache.get_mut_or_create(text.str);
+    let glyphs_bounds = text::layout_paragraph(
+        font,
+        ab_glyph::point(0.0, 0.0),
+        f32::INFINITY,
+        text.str,
+        glyphs,
+    );
+    let glyphs_width = glyphs_bounds.width() as i32;
+    let glyphs_height = glyphs_bounds.height() as i32;
+
+    let inner_size = IVec2 {
+        x: glyphs_width,
+        y: glyphs_height + BUTTON_PADDING_VERTICAL * 2,
+    };
+    let outer_size = inner_size + IVec2::splat(BORDER_SIZE * 2);
+    state.wrap_if_needed(outer_size);
+
+    let caret = state.caret + IVec2::new(0, BORDER_SIZE) + IVec2::new(0, BUTTON_PADDING_VERTICAL);
+
+    text::draw_glyphs(
+        // Get it anew so that `state` isn't retroactively mutably borrowed for the whole function
+        state
+            .glyphs_cache
+            .get(text.str)
+            .expect("we just generated glyphs for this text")
+            .iter()
+            .cloned(),
+        caret,
+        font,
+        shared::COLOR_BUTTON_TEXT,
+        &mut state.buffer,
+        state.buffer_width,
+    );
+
+    state.caret.x += outer_size.x + state.padding.x;
+}
 
 fn button(state: &mut GuiState, text: StrInLang) -> bool {
     let font = state.font_for(text);
