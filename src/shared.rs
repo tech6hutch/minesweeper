@@ -21,6 +21,15 @@ pub const COLOR_MESSAGE_TEXT: u32 = COLOR_MESSAGE_BORDER;
 pub const COLOR_BUTTON: u32 = 0x00CFD495;
 pub const COLOR_BUTTON_BORDER: u32 = COLOR_MESSAGE_BORDER;
 pub const COLOR_BUTTON_TEXT: u32 = 0x00000000;
+pub const COLOR_BUTTON_SHADE: u32 = {
+    let bytes = COLOR_BUTTON.to_be_bytes();
+    u32::from_be_bytes([
+        0, // always zero
+        bytes[1] / 2,
+        bytes[2] / 2,
+        bytes[3] / 2,
+    ])
+};
 
 // In pixels
 pub const CELL_SIZE: usize = 32;

@@ -168,16 +168,55 @@ fn button(state: &mut GuiState, text: &str) -> bool {
         &mut state.buffer,
         state.buffer_width,
     );
+
     caret += IVec2::splat(BORDER_SIZE);
     let btn_pos_min = caret;
-    shared::draw_rectangle(
-        caret,
-        size,
-        shared::COLOR_BUTTON,
-        &mut state.buffer,
-        state.buffer_width,
-    );
+    let btn_bounds = (btn_pos_min, btn_pos_min + size);
+    let mut held = false;
+    let mut clicked = false;
+    // This can look slightly less stupid when let-chains are stabilized:
+    // https://github.com/rust-lang/rust/issues/53667
+    if let Some(down_pos) = state.left_click_down_pos {
+        if point_in_rect(down_pos, btn_bounds) {
+            if let Some(current_pos) = state.mouse_pos {
+                if point_in_rect(current_pos, btn_bounds) {
+                    if state.is_left_click_down {
+                        held = true;
+                    } else {
+                        clicked = true;
+                    }
+                }
+            }
+        }
+    }
+
+    if held {
+        shared::draw_rectangle(
+            caret,
+            size,
+            shared::COLOR_BUTTON_SHADE,
+            &mut state.buffer,
+            state.buffer_width,
+        );
+        shared::draw_rectangle(
+            caret + IVec2::new(1, 1),
+            size - IVec2::new(2, 1),
+            shared::COLOR_BUTTON,
+            &mut state.buffer,
+            state.buffer_width,
+        );
+        caret.y += 1;
+    } else {
+        shared::draw_rectangle(
+            caret,
+            size,
+            shared::COLOR_BUTTON,
+            &mut state.buffer,
+            state.buffer_width,
+        );
+    }
     caret += IVec2::new(BUTTON_PADDING_HORIZONTAL, BUTTON_PADDING_VERTICAL);
+
     text::draw_glyphs(
         glyphs.iter().cloned(),
         caret,
@@ -187,18 +226,7 @@ fn button(state: &mut GuiState, text: &str) -> bool {
         state.buffer_width,
     );
 
-    let btn_bounds = (btn_pos_min, btn_pos_min + size);
-    let mut clicked = false;
-    if !state.is_left_click_down {
-        if let Some(down_pos) = state.left_click_down_pos {
-            let up_pos = state.mouse_pos.unwrap();
-            if point_in_rect(down_pos, btn_bounds) && point_in_rect(up_pos, btn_bounds) {
-                clicked = true;
-            }
-        }
-    }
     clicked
-    // TODO: change button appearance depending on clicking
 }
 
 fn point_in_rect(IVec2 { x, y }: IVec2, (min, max): (IVec2, IVec2)) -> bool {
