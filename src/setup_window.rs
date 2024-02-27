@@ -18,7 +18,7 @@ pub fn run() -> Config {
 
     let mut lang = Lang::En;
 
-    let mut state = GuiState {
+    let mut gui = GuiState {
         window: Window::new(
             "Minesweeper - Setup",
             WINDOW_WIDTH,
@@ -45,32 +45,30 @@ pub fn run() -> Config {
     };
 
     let mut needs_update = true;
-    while state.window.is_open() && !state.window.is_key_down(Key::Escape) {
-        let was_input = state.update_input();
+    while gui.window.is_open() && !gui.window.is_key_down(Key::Escape) {
+        let was_input = gui.update_input();
 
         if was_input || needs_update {
             needs_update = false;
-            state.buffer.fill(shared::COLOR_MESSAGE_BOX);
-            state.caret = state.caret_start;
+            gui.buffer.fill(shared::COLOR_MESSAGE_BOX);
+            gui.caret = gui.caret_start;
 
-            label(&mut state, lang.en_jp("Language:", "言語：").into());
+            gui.label(lang.en_jp("Language:", "言語："));
 
             let mut lang_btn = 0;
-            if button_set(
-                &mut state,
-                &[("English", Lang::En).into(), ("日本語", Lang::Jp).into()],
+            if gui.button_set(
+                ["English".of(Lang::En), "日本語".of(Lang::Jp)],
                 &mut lang_btn,
             ) {
                 println!("button {lang_btn} clicked");
                 lang = [Lang::En, Lang::Jp][usize::from(lang_btn)];
-                state.font = [state.font_en, state.font_jp][usize::from(lang_btn)];
+                gui.font = [gui.font_en, gui.font_jp][usize::from(lang_btn)];
                 needs_update = true;
             }
         }
 
-        state
-            .window
-            .update_with_buffer(&state.buffer, WINDOW_WIDTH, WINDOW_HEIGHT)
+        gui.window
+            .update_with_buffer(&gui.buffer, WINDOW_WIDTH, WINDOW_HEIGHT)
             .unwrap();
     }
 
@@ -82,6 +80,10 @@ pub fn run() -> Config {
         ..Config::default()
     }
 }
+
+const BORDER_SIZE: i32 = 2;
+const BUTTON_PADDING_HORIZONTAL: i32 = 10;
+const BUTTON_PADDING_VERTICAL: i32 = 10;
 
 type GuiFontRef<'a> = &'a PxScaleFont<&'a FontRef<'static>>;
 
@@ -177,6 +179,154 @@ impl<'f> GuiState<'f> {
             Some(Lang::Jp) => self.font_jp,
         }
     }
+
+    // Widgets
+
+    fn label<'a>(&mut self, text: impl Into<StrInLang<'a>>) {
+        let text = text.into();
+        let glyphs_size = self._cache_glyphs(text);
+
+        let inner_size = glyphs_size
+            + IVec2 {
+                x: 0,
+                y: BUTTON_PADDING_VERTICAL * 2,
+            };
+        let outer_size = inner_size + IVec2::splat(BORDER_SIZE * 2);
+        self.wrap_if_needed(outer_size);
+
+        self._draw_cached_glyphs_at(
+            text,
+            self.caret
+                + IVec2 {
+                    x: 0,
+                    y: BORDER_SIZE + BUTTON_PADDING_VERTICAL,
+                },
+            shared::COLOR_BUTTON_TEXT,
+        );
+
+        self.caret.x += outer_size.x + self.padding.x;
+    }
+
+    fn button<'a>(&mut self, text: impl Into<StrInLang<'a>>) -> bool {
+        let text = text.into();
+        let glyphs_size = self._cache_glyphs(text);
+
+        let inner_size = glyphs_size
+            + IVec2 {
+                x: BUTTON_PADDING_HORIZONTAL * 2,
+                y: BUTTON_PADDING_VERTICAL * 2,
+            };
+        let outer_size = inner_size + IVec2::splat(BORDER_SIZE * 2);
+        self.wrap_if_needed(outer_size);
+
+        let mut caret = self.caret;
+        shared::draw_rectangle(
+            caret,
+            outer_size,
+            shared::COLOR_BUTTON_BORDER,
+            &mut self.buffer,
+            self.buffer_width,
+        );
+
+        caret += IVec2::splat(BORDER_SIZE);
+        let btn_bounds = (caret, caret + inner_size);
+        let mut held = false;
+        let mut clicked = false;
+        // This can look slightly less stupid when let-chains are stabilized:
+        // https://github.com/rust-lang/rust/issues/53667
+        if let Some(down_pos) = self.left_click_down_pos {
+            if point_in_rect(down_pos, btn_bounds) {
+                if let Some(current_pos) = self.mouse_pos {
+                    if point_in_rect(current_pos, btn_bounds) {
+                        if self.is_left_click_down {
+                            held = true;
+                        } else {
+                            clicked = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        if held {
+            shared::draw_rectangle(
+                caret,
+                inner_size,
+                shared::COLOR_BUTTON_SHADE,
+                &mut self.buffer,
+                self.buffer_width,
+            );
+            shared::draw_rectangle(
+                caret + IVec2::new(1, 1),
+                inner_size - IVec2::new(2, 1),
+                shared::COLOR_BUTTON,
+                &mut self.buffer,
+                self.buffer_width,
+            );
+            caret.y += 1;
+        } else {
+            shared::draw_rectangle(
+                caret,
+                inner_size,
+                shared::COLOR_BUTTON,
+                &mut self.buffer,
+                self.buffer_width,
+            );
+        }
+        caret += IVec2::new(BUTTON_PADDING_HORIZONTAL, BUTTON_PADDING_VERTICAL);
+
+        self._draw_cached_glyphs_at(text, caret, shared::COLOR_BUTTON_TEXT);
+
+        self.caret.x += outer_size.x + self.padding.x;
+
+        clicked
+    }
+
+    fn button_set<'a, const N: usize>(
+        &mut self,
+        texts: [impl Into<StrInLang<'a>>; N],
+        active_button: &mut u8,
+    ) -> bool {
+        let mut clicked_any = false;
+        for (i, text) in texts.into_iter().enumerate() {
+            if self.button(text) {
+                *active_button = i.try_into().unwrap();
+                clicked_any = true;
+            }
+        }
+        clicked_any
+    }
+
+    fn _cache_glyphs(&mut self, text: StrInLang<'_>) -> IVec2 {
+        let font = self.font_for(text);
+        let glyphs = self.glyphs_cache.get_mut_or_create(text.str);
+        let glyphs_bounds = text::layout_paragraph(
+            font,
+            ab_glyph::point(0.0, 0.0),
+            f32::INFINITY,
+            text.str,
+            glyphs,
+        );
+        IVec2 {
+            x: glyphs_bounds.width() as i32,
+            y: glyphs_bounds.height() as i32,
+        }
+    }
+
+    fn _draw_cached_glyphs_at(&mut self, text: StrInLang<'_>, caret: IVec2, color: u32) {
+        text::draw_glyphs(
+            self.glyphs_cache
+                .get(text.str)
+                .expect("glyphs weren't cached before trying to draw them")
+                .iter()
+                .cloned(),
+            caret,
+            self.font_for(text),
+            color,
+            &mut self.buffer,
+            self.buffer_width,
+        );
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -189,164 +339,16 @@ impl<'a> From<&'a str> for StrInLang<'a> {
         Self { str, lang: None }
     }
 }
-impl<'a> From<(&'a str, Lang)> for StrInLang<'a> {
-    fn from((str, lang): (&'a str, Lang)) -> Self {
-        Self {
-            str,
+trait StrInLangExt<'a> {
+    fn of(self, lang: Lang) -> StrInLang<'a>;
+}
+impl<'a> StrInLangExt<'a> for &'a str {
+    fn of(self, lang: Lang) -> StrInLang<'a> {
+        StrInLang {
+            str: self,
             lang: Some(lang),
         }
     }
-}
-
-const BORDER_SIZE: i32 = 2;
-const BUTTON_PADDING_HORIZONTAL: i32 = 10;
-const BUTTON_PADDING_VERTICAL: i32 = 10;
-
-fn label(state: &mut GuiState, text: StrInLang) {
-    let font = state.font_for(text);
-    let glyphs = state.glyphs_cache.get_mut_or_create(text.str);
-    let glyphs_bounds = text::layout_paragraph(
-        font,
-        ab_glyph::point(0.0, 0.0),
-        f32::INFINITY,
-        text.str,
-        glyphs,
-    );
-    let glyphs_width = glyphs_bounds.width() as i32;
-    let glyphs_height = glyphs_bounds.height() as i32;
-
-    let inner_size = IVec2 {
-        x: glyphs_width,
-        y: glyphs_height + BUTTON_PADDING_VERTICAL * 2,
-    };
-    let outer_size = inner_size + IVec2::splat(BORDER_SIZE * 2);
-    state.wrap_if_needed(outer_size);
-
-    let caret = state.caret + IVec2::new(0, BORDER_SIZE) + IVec2::new(0, BUTTON_PADDING_VERTICAL);
-
-    text::draw_glyphs(
-        // Get it anew so that `state` isn't retroactively mutably borrowed for the whole function
-        state
-            .glyphs_cache
-            .get(text.str)
-            .expect("we just generated glyphs for this text")
-            .iter()
-            .cloned(),
-        caret,
-        font,
-        shared::COLOR_BUTTON_TEXT,
-        &mut state.buffer,
-        state.buffer_width,
-    );
-
-    state.caret.x += outer_size.x + state.padding.x;
-}
-
-fn button(state: &mut GuiState, text: StrInLang) -> bool {
-    let font = state.font_for(text);
-    let glyphs = state.glyphs_cache.get_mut_or_create(text.str);
-    let glyphs_bounds = text::layout_paragraph(
-        font,
-        ab_glyph::point(0.0, 0.0),
-        f32::INFINITY,
-        text.str,
-        glyphs,
-    );
-    let glyphs_width = glyphs_bounds.width() as i32;
-    let glyphs_height = glyphs_bounds.height() as i32;
-
-    let inner_size = IVec2 {
-        x: glyphs_width + BUTTON_PADDING_HORIZONTAL * 2,
-        y: glyphs_height + BUTTON_PADDING_VERTICAL * 2,
-    };
-    let outer_size = inner_size + IVec2::splat(BORDER_SIZE * 2);
-    state.wrap_if_needed(outer_size);
-
-    let mut caret = state.caret;
-    shared::draw_rectangle(
-        caret,
-        outer_size,
-        shared::COLOR_BUTTON_BORDER,
-        &mut state.buffer,
-        state.buffer_width,
-    );
-
-    caret += IVec2::splat(BORDER_SIZE);
-    let btn_bounds = (caret, caret + inner_size);
-    let mut held = false;
-    let mut clicked = false;
-    // This can look slightly less stupid when let-chains are stabilized:
-    // https://github.com/rust-lang/rust/issues/53667
-    if let Some(down_pos) = state.left_click_down_pos {
-        if point_in_rect(down_pos, btn_bounds) {
-            if let Some(current_pos) = state.mouse_pos {
-                if point_in_rect(current_pos, btn_bounds) {
-                    if state.is_left_click_down {
-                        held = true;
-                    } else {
-                        clicked = true;
-                    }
-                }
-            }
-        }
-    }
-
-    if held {
-        shared::draw_rectangle(
-            caret,
-            inner_size,
-            shared::COLOR_BUTTON_SHADE,
-            &mut state.buffer,
-            state.buffer_width,
-        );
-        shared::draw_rectangle(
-            caret + IVec2::new(1, 1),
-            inner_size - IVec2::new(2, 1),
-            shared::COLOR_BUTTON,
-            &mut state.buffer,
-            state.buffer_width,
-        );
-        caret.y += 1;
-    } else {
-        shared::draw_rectangle(
-            caret,
-            inner_size,
-            shared::COLOR_BUTTON,
-            &mut state.buffer,
-            state.buffer_width,
-        );
-    }
-    caret += IVec2::new(BUTTON_PADDING_HORIZONTAL, BUTTON_PADDING_VERTICAL);
-
-    text::draw_glyphs(
-        // Get it anew so that `state` isn't retroactively mutably borrowed for the whole function
-        state
-            .glyphs_cache
-            .get(text.str)
-            .expect("we just generated glyphs for this text")
-            .iter()
-            .cloned(),
-        caret,
-        font,
-        shared::COLOR_BUTTON_TEXT,
-        &mut state.buffer,
-        state.buffer_width,
-    );
-
-    state.caret.x += outer_size.x + state.padding.x;
-
-    clicked
-}
-
-fn button_set(state: &mut GuiState, texts: &[StrInLang], active_button: &mut u8) -> bool {
-    let mut clicked_any = false;
-    for (i, &text) in texts.iter().enumerate() {
-        if button(state, text) {
-            *active_button = i.try_into().unwrap();
-            clicked_any = true;
-        }
-    }
-    clicked_any
 }
 
 fn point_in_rect(IVec2 { x, y }: IVec2, (min, max): (IVec2, IVec2)) -> bool {
