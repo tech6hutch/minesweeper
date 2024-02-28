@@ -1,4 +1,4 @@
-use ab_glyph::{point, Font, Glyph, Point, Rect, ScaleFont};
+use ab_glyph::{point, Font, Glyph, Rect, ScaleFont};
 use glam::IVec2;
 
 use crate::shared::lerp_colors;
@@ -33,29 +33,28 @@ pub fn draw_glyphs<F, FS, G>(
     }
 }
 
+/// Returns the size of the resulting paragraph, were it to be drawn.
+///
+/// Use `f32::INFINITY` for `max_width` for none.
 // Based off an example in the ab_glyph documentation.
 pub fn layout_paragraph<F, FS>(
     font: &FS,
-    position: Point,
     max_width: f32,
     text: &str,
     target: &mut Vec<Glyph>,
-) -> Rect
+) -> IVec2
 where
     F: Font,
     FS: ScaleFont<F>,
 {
-    let mut glyphs_bounds = Rect {
-        min: position,
-        max: position,
-    };
+    let mut glyphs_bounds = Rect::default();
     let v_advance = font.height() + font.line_gap();
-    let mut caret = position + point(0.0, font.ascent());
+    let mut caret = point(0.0, font.ascent());
     let mut prev_glyph: Option<Glyph> = None;
     for c in text.chars() {
         if c.is_control() {
             if c == '\n' {
-                caret = point(position.x, caret.y + v_advance);
+                caret = point(0.0, caret.y + v_advance);
                 prev_glyph = None;
             }
             continue;
@@ -73,8 +72,8 @@ where
         if !c.is_whitespace() {
             // Whitespace is allowed to overflow max_width since it's not visible
             // anyway *and* we don't want to start the next line with it.
-            if caret.x > position.x + max_width {
-                caret = point(position.x, caret.y + v_advance);
+            if caret.x > max_width {
+                caret = point(0.0, caret.y + v_advance);
                 glyph.position = caret;
                 prev_glyph = None;
             }
@@ -88,5 +87,8 @@ where
 
     glyphs_bounds.max.y = caret.y - font.descent();
 
-    glyphs_bounds
+    IVec2 {
+        x: glyphs_bounds.width() as i32,
+        y: glyphs_bounds.height() as i32,
+    }
 }

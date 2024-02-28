@@ -9,12 +9,17 @@ mod text;
 
 use shared::*;
 
+/// The number of cells that *must* be free of mines at the start of the game.
+const SAFE_CELLS_FOR_FIRST_CLICK: usize = 9; // 1 + 8 surrounding cells
+
 static DIGITS_EN: [char; 10] = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
 // Unlike English, these aren't in order in Unicode, so we can't just add a constant to convert.
 static DIGITS_JP: [char; 10] = ['0', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
 
 fn main() {
-    let mut cfg = setup_window::run();
+    let Some(mut cfg) = setup_window::run() else {
+        return;
+    };
     cfg.buffer_width = (CELL_SIZE + 1) * cfg.cell_cols + 1;
     cfg.buffer_height = (CELL_SIZE + 1) * cfg.cell_rows + 1;
 
@@ -308,9 +313,6 @@ fn initialize_mines(
     mines: &mut [bool],
     first_click: (usize, usize),
 ) {
-    // The number of cells that *must* be free of mines at the start of the game.
-    const SAFE_CELLS_FOR_FIRST_CLICK: usize = 9; // 1 + 8 surrounding cells
-
     let (click_x, click_y) = first_click;
     let mut safe_zone = Vec::with_capacity(SAFE_CELLS_FOR_FIRST_CLICK);
     safe_zone.push(cfg.cell_coords_to_idx(click_x, click_y));
@@ -323,12 +325,14 @@ fn initialize_mines(
     );
     mine_squares.sort();
     let mut mines_placed = 0;
-    for i in 0..mines.len() {
-        if !safe_zone.contains(&i) && mine_squares.binary_search(&i).is_ok() {
-            mines[i] = true;
-            mines_placed += 1;
-            if mines_placed == cfg.mine_count {
-                break;
+    if cfg.mine_count > 0 {
+        for i in 0..mines.len() {
+            if !safe_zone.contains(&i) && mine_squares.binary_search(&i).is_ok() {
+                mines[i] = true;
+                mines_placed += 1;
+                if mines_placed == cfg.mine_count {
+                    break;
+                }
             }
         }
     }
@@ -372,25 +376,18 @@ where
     FS: ScaleFont<F>,
 {
     let mut glyphs = Vec::new();
-    let glyphs_bounds = text::layout_paragraph(
-        &font,
-        ab_glyph::point(0.0, 0.0),
-        cfg.buffer_width as f32 / 2.0,
-        msg,
-        &mut glyphs,
-    );
-    let glyphs_width = glyphs_bounds.width();
-    let left_margin = ((cfg.buffer_width as f32 - glyphs_width) / 2.0) as usize;
-    let glyphs_height = glyphs_bounds.height();
-    let top_margin = ((cfg.buffer_height as f32 - glyphs_height) / 2.0) as usize;
+    let glyphs_size =
+        text::layout_paragraph(&font, cfg.buffer_width as f32 / 2.0, msg, &mut glyphs);
+    let left_margin = (cfg.buffer_width - glyphs_size.x as usize) / 2;
+    let top_margin = (cfg.buffer_height - glyphs_size.y as usize) / 2;
     // Draw box with outline
     {
         let box_padding_left_right = font.scale().x as usize;
         let box_padding_top_bottom = font.scale().y as usize;
         let box_left = left_margin - box_padding_left_right;
         let box_top = top_margin - box_padding_top_bottom;
-        let box_width = box_padding_left_right * 2 + glyphs_width as usize;
-        let box_height = box_padding_top_bottom * 2 + glyphs_height as usize;
+        let box_width = box_padding_left_right * 2 + glyphs_size.x as usize;
+        let box_height = box_padding_top_bottom * 2 + glyphs_size.y as usize;
         let outline = 2;
         draw_rectangle(
             IVec2::new(box_left as i32, box_top as i32),

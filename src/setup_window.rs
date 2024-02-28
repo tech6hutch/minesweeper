@@ -6,17 +6,28 @@ use std::collections::HashMap;
 use crate::shared::{self, Config, Lang};
 use crate::text;
 
+const SAFE_CELLS_FOR_FIRST_CLICK: i32 = crate::SAFE_CELLS_FOR_FIRST_CLICK as i32;
+
+// 4 is the minimum that doesn't crash :)
+const MIN_COLS: i32 = 4;
+const MIN_ROWS: i32 = 4;
+const MAX_COLS: i32 = 99;
+const MAX_ROWS: i32 = 99;
+
 const WINDOW_WIDTH: usize = 300;
-const WINDOW_HEIGHT: usize = 200;
+const WINDOW_HEIGHT: usize = 300;
 const WINDOW_PADDING: i32 = 5;
 
-pub fn run() -> Config {
+pub fn run() -> Option<Config> {
     let font_en = FontRef::try_from_slice(shared::FIRA_CODE_BYTES).unwrap();
     let font_en = font_en.as_scaled(20.0);
     let font_jp = FontRef::try_from_slice(shared::NOTO_SANS_JP_BYTES).unwrap();
     let font_jp = font_jp.as_scaled(20.0);
 
     let mut lang = Lang::En;
+    let mut rows: i32 = 10;
+    let mut cols: i32 = 10;
+    let mut mine_count: i32 = 10;
 
     let mut gui = GuiState {
         window: Window::new(
@@ -37,53 +48,96 @@ pub fn run() -> Config {
         font: &font_en,
         font_en: &font_en,
         font_jp: &font_jp,
-        glyphs_cache: HashMap::new(),
         caret: IVec2::splat(WINDOW_PADDING),
         caret_start: IVec2::splat(WINDOW_PADDING),
         line_height: 0,
         padding: IVec2::splat(WINDOW_PADDING),
     };
+    let mut prev_buffer = gui.buffer.clone();
 
+    let mut start_game = false;
     let mut needs_update = true;
-    while gui.window.is_open() && !gui.window.is_key_down(Key::Escape) {
+    'window_loop: while gui.window.is_open() && !gui.window.is_key_down(Key::Escape) {
         let was_input = gui.update_input();
+        needs_update |= was_input;
 
-        if was_input || needs_update {
-            needs_update = false;
+        // Break from this block to cancel the draw update, but get new input
+        // info (redrawing the previous, complete buffer).
+        'update_buffer: {
+            if !needs_update {
+                break 'update_buffer;
+            }
+
             gui.buffer.fill(shared::COLOR_MESSAGE_BOX);
             gui.caret = gui.caret_start;
 
             gui.label(lang.en_jp("Language:", "言語："));
-
             let mut lang_btn = 0;
             if gui.button_set(
                 ["English".of(Lang::En), "日本語".of(Lang::Jp)],
                 &mut lang_btn,
             ) {
-                println!("button {lang_btn} clicked");
                 lang = [Lang::En, Lang::Jp][usize::from(lang_btn)];
                 gui.font = [gui.font_en, gui.font_jp][usize::from(lang_btn)];
-                needs_update = true;
+                break 'update_buffer;
             }
+            gui.new_line();
+
+            gui.label(lang.en_jp("Columns:", "筋："));
+            if gui.number_input(&mut cols) {
+                cols = cols.clamp(MIN_COLS, MAX_COLS);
+                mine_count = mine_count.clamp(0, rows * cols - SAFE_CELLS_FOR_FIRST_CLICK);
+                break 'update_buffer;
+            }
+            gui.new_line();
+
+            gui.label(lang.en_jp("Rows:", "段："));
+            if gui.number_input(&mut rows) {
+                rows = rows.clamp(MIN_ROWS, MAX_ROWS);
+                mine_count = mine_count.clamp(0, rows * cols - SAFE_CELLS_FOR_FIRST_CLICK);
+                break 'update_buffer;
+            }
+            gui.new_line();
+
+            gui.label(lang.en_jp("Mines:", "地雷："));
+            if gui.number_input(&mut mine_count) {
+                mine_count = mine_count.clamp(0, rows * cols - SAFE_CELLS_FOR_FIRST_CLICK);
+                break 'update_buffer;
+            }
+            gui.new_line();
+
+            if gui.button(lang.en_jp("Start Game", "プレイ")) {
+                start_game = true;
+                break 'window_loop;
+            }
+
+            prev_buffer.copy_from_slice(&gui.buffer);
+            needs_update = false;
         }
 
         gui.window
-            .update_with_buffer(&gui.buffer, WINDOW_WIDTH, WINDOW_HEIGHT)
+            .update_with_buffer(&prev_buffer, WINDOW_WIDTH, WINDOW_HEIGHT)
             .unwrap();
     }
 
-    Config {
-        lang,
-        cell_cols: 10,
-        cell_rows: 10,
-        mine_count: 10,
-        ..Config::default()
+    if !start_game {
+        return None;
     }
+
+    // The window implicitly closes.
+
+    Some(Config {
+        lang,
+        cell_cols: cols.try_into().unwrap(),
+        cell_rows: rows.try_into().unwrap(),
+        mine_count: mine_count.try_into().unwrap(),
+        ..Config::default()
+    })
 }
 
 const BORDER_SIZE: i32 = 2;
-const BUTTON_PADDING_HORIZONTAL: i32 = 10;
-const BUTTON_PADDING_VERTICAL: i32 = 10;
+const BUTTON_PADDING_HORIZONTAL: i32 = 8;
+const BUTTON_PADDING_VERTICAL: i32 = 5;
 
 type GuiFontRef<'a> = &'a PxScaleFont<&'a FontRef<'static>>;
 
@@ -103,7 +157,6 @@ struct GuiState<'f> {
     font: GuiFontRef<'f>,
     font_en: GuiFontRef<'f>,
     font_jp: GuiFontRef<'f>,
-    glyphs_cache: HashMap<Box<str>, Vec<Glyph>>,
     /// Current position for drawing widgets
     caret: IVec2,
     /// Initial position of `caret`
@@ -182,9 +235,12 @@ impl<'f> GuiState<'f> {
 
     // Widgets
 
+    /// Draws a label.
     fn label<'a>(&mut self, text: impl Into<StrInLang<'a>>) {
         let text = text.into();
-        let glyphs_size = self._cache_glyphs(text);
+        let font = self.font_for(text);
+        let mut glyphs = Vec::new();
+        let glyphs_size = text::layout_paragraph(font, f32::INFINITY, text.str, &mut glyphs);
 
         let inner_size = glyphs_size
             + IVec2 {
@@ -194,8 +250,9 @@ impl<'f> GuiState<'f> {
         let outer_size = inner_size + IVec2::splat(BORDER_SIZE * 2);
         self.wrap_if_needed(outer_size);
 
-        self._draw_cached_glyphs_at(
-            text,
+        self._draw_glyphs_at(
+            glyphs,
+            font,
             self.caret
                 + IVec2 {
                     x: 0,
@@ -207,9 +264,68 @@ impl<'f> GuiState<'f> {
         self.caret.x += outer_size.x + self.padding.x;
     }
 
+    /// Draws/handles a number input. Returns true if the value was (attempted to be) changed.
+    fn number_input(&mut self, num: &mut i32) -> bool {
+        if self.button("-") {
+            *num = num.saturating_sub(1);
+            return true;
+        }
+
+        {
+            let string = num.to_string();
+            let text = string.as_str().into();
+            let font = self.font_for(text);
+            let mut glyphs = Vec::new();
+            let glyphs_size = text::layout_paragraph(font, f32::INFINITY, text.str, &mut glyphs);
+
+            let inner_size = glyphs_size
+                + IVec2 {
+                    x: BUTTON_PADDING_HORIZONTAL * 2,
+                    y: BUTTON_PADDING_VERTICAL * 2,
+                };
+            let outer_size = inner_size + IVec2::splat(BORDER_SIZE * 2);
+            self.wrap_if_needed(outer_size);
+            let mut caret = self.caret;
+
+            // Draw the outline
+            let bg_color =
+                self.buffer[self.caret.y as usize * self.buffer_width + self.caret.x as usize];
+            shared::draw_rectangle(
+                caret,
+                outer_size,
+                shared::COLOR_BUTTON_TEXT,
+                &mut self.buffer,
+                self.buffer_width,
+            );
+            caret += IVec2::splat(BORDER_SIZE);
+            shared::draw_rectangle(
+                caret,
+                inner_size,
+                bg_color,
+                &mut self.buffer,
+                self.buffer_width,
+            );
+            caret += IVec2::new(BUTTON_PADDING_HORIZONTAL, BUTTON_PADDING_VERTICAL);
+
+            self._draw_glyphs_at(glyphs, font, caret, shared::COLOR_BUTTON_TEXT);
+
+            self.caret.x += outer_size.x + self.padding.x;
+        }
+
+        if self.button("+") {
+            *num = num.saturating_add(1);
+            return true;
+        }
+
+        false
+    }
+
+    /// Draws/handles a button. Returns true if it was clicked.
     fn button<'a>(&mut self, text: impl Into<StrInLang<'a>>) -> bool {
         let text = text.into();
-        let glyphs_size = self._cache_glyphs(text);
+        let font = self.font_for(text);
+        let mut glyphs = Vec::new();
+        let glyphs_size = text::layout_paragraph(font, f32::INFINITY, text.str, &mut glyphs);
 
         let inner_size = glyphs_size
             + IVec2 {
@@ -219,6 +335,7 @@ impl<'f> GuiState<'f> {
         let outer_size = inner_size + IVec2::splat(BORDER_SIZE * 2);
         self.wrap_if_needed(outer_size);
 
+        // Draw the outline
         let mut caret = self.caret;
         shared::draw_rectangle(
             caret,
@@ -248,6 +365,7 @@ impl<'f> GuiState<'f> {
             }
         }
 
+        // Draw the inside of the button
         if held {
             shared::draw_rectangle(
                 caret,
@@ -275,13 +393,14 @@ impl<'f> GuiState<'f> {
         }
         caret += IVec2::new(BUTTON_PADDING_HORIZONTAL, BUTTON_PADDING_VERTICAL);
 
-        self._draw_cached_glyphs_at(text, caret, shared::COLOR_BUTTON_TEXT);
+        self._draw_glyphs_at(glyphs, font, caret, shared::COLOR_BUTTON_TEXT);
 
         self.caret.x += outer_size.x + self.padding.x;
 
         clicked
     }
 
+    /// Draws/handles a set of related buttons where one is always active. Returns true if any were clicked.
     fn button_set<'a, const N: usize>(
         &mut self,
         texts: [impl Into<StrInLang<'a>>; N],
@@ -297,31 +416,11 @@ impl<'f> GuiState<'f> {
         clicked_any
     }
 
-    fn _cache_glyphs(&mut self, text: StrInLang<'_>) -> IVec2 {
-        let font = self.font_for(text);
-        let glyphs = self.glyphs_cache.get_mut_or_create(text.str);
-        let glyphs_bounds = text::layout_paragraph(
-            font,
-            ab_glyph::point(0.0, 0.0),
-            f32::INFINITY,
-            text.str,
-            glyphs,
-        );
-        IVec2 {
-            x: glyphs_bounds.width() as i32,
-            y: glyphs_bounds.height() as i32,
-        }
-    }
-
-    fn _draw_cached_glyphs_at(&mut self, text: StrInLang<'_>, caret: IVec2, color: u32) {
+    fn _draw_glyphs_at(&mut self, glyphs: Vec<Glyph>, font: GuiFontRef, caret: IVec2, color: u32) {
         text::draw_glyphs(
-            self.glyphs_cache
-                .get(text.str)
-                .expect("glyphs weren't cached before trying to draw them")
-                .iter()
-                .cloned(),
+            glyphs.into_iter(),
             caret,
-            self.font_for(text),
+            font,
             color,
             &mut self.buffer,
             self.buffer_width,
