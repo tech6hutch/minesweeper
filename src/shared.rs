@@ -123,9 +123,20 @@ pub fn lerp_colors(min: u32, max: u32, amt: f32) -> u32 {
         lerp_u8(min_bytes[3], max_bytes[3], amt),
     ])
 }
+#[test]
+fn test_lerp_colors() {
+    assert_eq!(lerp_colors(0x00000000, 0x00ff0000, 0.5), 0x007f0000);
+    assert_eq!(lerp_colors(0x00ff0000, 0x00000000, 0.5), 0x007f0000 + 0x00010000);
+    assert_eq!(lerp_colors(0x00000033, 0x00ff0033, 0.5), 0x007f0033);
+}
 
 fn lerp_u8(min: u8, max: u8, amt: f32) -> u8 {
-    let min = i16::from(min);
-    let max = i16::from(max);
-    (min + ((max - min) as f32 * amt) as i16) as u8
+    let min = f32::from(min);
+    let max = f32::from(max);
+    (min + ((max - min) * amt)) as u8
+}
+#[test]
+fn test_lerp_u8() {
+    assert_eq!(lerp_u8(0, 255, 0.5), 127);
+    assert_eq!(lerp_u8(255, 0, 0.5), 128);
 }

@@ -106,7 +106,7 @@ fn main() {
                                     let cell = &mut cells[sy][sx];
                                     match cell {
                                         Cell::Unopened => {
-                                            *cell = Cell::Opened;
+                                            open_cell(&cfg, sx, sy, &mut cells, &mine_counts);
                                             if mines[cfg.cell_coords_to_idx(sx, sy)] {
                                                 opened_any_mines = true;
                                             }
@@ -144,24 +144,6 @@ fn main() {
                                     count_cell_mines(&cfg, &mut mine_counts, &mines);
                                 }
 
-                                fn open_cell(
-                                    cfg: &Config,
-                                    sx: usize,
-                                    sy: usize,
-                                    cells: &mut Vec<Vec<Cell>>,
-                                    mine_counts: &[u8],
-                                ) {
-                                    let cell = &mut cells[sy][sx];
-                                    if *cell != Cell::Unopened {
-                                        return;
-                                    }
-                                    *cell = Cell::Opened;
-                                    if mine_counts[cfg.cell_coords_to_idx(sx, sy)] == 0 {
-                                        do_surrounding(&cfg, sx, sy, |ssx, ssy| {
-                                            open_cell(&cfg, ssx, ssy, cells, mine_counts)
-                                        });
-                                    }
-                                }
                                 open_cell(&cfg, cell_x, cell_y, &mut cells, &mine_counts);
 
                                 move_count += 1;
@@ -352,6 +334,26 @@ fn count_cell_mines(cfg: &Config, mine_counts: &mut [u8], mines: &[bool]) {
     }
 }
 
+/// Auto-opens the cells surrounding a 0, recursively.
+fn open_cell(
+    cfg: &Config,
+    sx: usize,
+    sy: usize,
+    cells: &mut Vec<Vec<Cell>>,
+    mine_counts: &[u8],
+) {
+    let cell = &mut cells[sy][sx];
+    if *cell != Cell::Unopened {
+        return;
+    }
+    *cell = Cell::Opened;
+    if mine_counts[cfg.cell_coords_to_idx(sx, sy)] == 0 {
+        do_surrounding(&cfg, sx, sy, |ssx, ssy| {
+            open_cell(&cfg, ssx, ssy, cells, mine_counts)
+        });
+    }
+}
+
 fn all_safe_cells_opened(cfg: &Config, mines: &[bool], cells: &Vec<Vec<Cell>>) -> bool {
     !cells
         .iter()
@@ -511,7 +513,7 @@ fn draw_char_in_cell(
         y += offset_y;
         let i = y * cfg.buffer_width + x;
         // Sometimes c is > 1.0 🤷
-        buffer[i] = lerp_colors(buffer[i], color, f32::min(c, 1.0));
+        buffer[i] = lerp_colors(buffer[i], color, f32::max(c, 1.0));
     });
 }
 
