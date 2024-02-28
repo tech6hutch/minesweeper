@@ -1,0 +1,7 @@
+- Text looks weird sometimes, particularly Japanese text (maybe as a result of font differences)
+    - Lerping between a yellowish bg and a black text color produces white (or other colors) sometimes? Maybe my lerping code is wrong, e.g. for dark text on a light bg.
+    - Maybe try using a whole point size for the fonts instead of pixels.
+- Idea to reduce guessing: when the player clicks a bomb, if it can be moved without changing the displayed numbers, move it silently.
+    - Only apply to cells that are surrounded by at least one open cell, to prevent clicking randomly in the unopened part of the board.
+- Choose better colors
+    - Maybe button borders could have a more yellowish white
