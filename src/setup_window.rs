@@ -18,16 +18,16 @@ const WINDOW_WIDTH: usize = 300;
 const WINDOW_HEIGHT: usize = 300;
 const WINDOW_PADDING: i32 = 5;
 
-pub fn run() -> Option<Config> {
+pub fn run(old_cfg: Option<Config>) -> Option<Config> {
     let font_en = FontRef::try_from_slice(shared::FIRA_CODE_BYTES).unwrap();
     let font_en = font_en.as_scaled(20.0);
     let font_jp = FontRef::try_from_slice(shared::NOTO_SANS_JP_BYTES).unwrap();
     let font_jp = font_jp.as_scaled(20.0);
 
-    let mut lang = Lang::En;
-    let mut rows: i32 = 10;
-    let mut cols: i32 = 10;
-    let mut mine_count: i32 = 10;
+    let mut lang = old_cfg.as_ref().map(|cfg| cfg.lang).unwrap_or(Lang::En);
+    let mut rows: i32 = old_cfg.as_ref().map(|cfg| cfg.cell_rows as i32).unwrap_or(10);
+    let mut cols: i32 = old_cfg.as_ref().map(|cfg| cfg.cell_cols as i32).unwrap_or(10);
+    let mut mine_count: i32 = old_cfg.as_ref().map(|cfg| cfg.mine_count as i32).unwrap_or(10);
 
     let mut gui = GuiState {
         window: Window::new(
@@ -45,7 +45,7 @@ pub fn run() -> Option<Config> {
         is_left_click_down: false,
         left_click_down_pos: None,
 
-        font: &font_en,
+        font: lang.en_jp(&font_en, &font_jp),
         font_en: &font_en,
         font_jp: &font_jp,
         caret: IVec2::splat(WINDOW_PADDING),

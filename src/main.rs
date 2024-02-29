@@ -1,6 +1,6 @@
 use ab_glyph::{Font, FontRef, ScaleFont};
 use glam::IVec2;
-use minifb::{Key, MouseButton, MouseMode, Window};
+use minifb::{Key, Menu, MouseButton, MouseMode, Window};
 use std::time::{Duration, Instant};
 
 mod setup_window;
@@ -16,16 +16,32 @@ static DIGITS_EN: [char; 10] = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'
 // Unlike English, these aren't in order in Unicode, so we can't just add a constant to convert.
 static DIGITS_JP: [char; 10] = ['0', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
 
+enum GameEnd {
+    Restart,
+    Quit,
+}
+
 fn main() {
-    let Some(mut cfg) = setup_window::run() else {
-        return;
-    };
+    let mut cfg: Option<Config> = None;
+    loop {
+        cfg = setup_window::run(cfg);
+        let Some(cfg) = cfg.as_mut() else {
+            return;
+        };
+        match run(cfg) {
+            GameEnd::Restart => {}
+            GameEnd::Quit => return,
+        }
+    }
+}
+
+fn run(cfg: &mut Config) -> GameEnd {
     cfg.buffer_width = (CELL_SIZE + 1) * cfg.cell_cols + 1;
     cfg.buffer_height = (CELL_SIZE + 1) * cfg.cell_rows + 1;
 
-    let font = FontRef::try_from_slice(cfg.en_jp(FIRA_CODE_BYTES, NOTO_SANS_JP_BYTES)).unwrap();
+    let mut font = FontRef::try_from_slice(cfg.en_jp(FIRA_CODE_BYTES, NOTO_SANS_JP_BYTES)).unwrap();
     let emoji_font = FontRef::try_from_slice(NOTO_EMOJI_BYTES).unwrap();
-    let digits = cfg.en_jp(DIGITS_EN, DIGITS_JP);
+    let mut digits = cfg.en_jp(DIGITS_EN, DIGITS_JP);
     let mut buffer = vec![0u32; cfg.buffer_width * cfg.buffer_height];
     let mut window = Window::new(
         "Minesweeper",
@@ -34,6 +50,24 @@ fn main() {
         Default::default(),
     )
     .unwrap();
+
+    const MENU_ID_NEW_GAME: usize = 1;
+    const MENU_ID_QUIT: usize = 2;
+    const MENU_ID_LANG_EN: usize = 3;
+    const MENU_ID_LANG_JP: usize = 4;
+
+    {
+        let mut game_menu = Menu::new("Game").unwrap();
+        game_menu.add_item("New Game", MENU_ID_NEW_GAME).shortcut(Key::N, minifb::MENU_KEY_CTRL).build();
+        game_menu.add_item("Quit", MENU_ID_QUIT).shortcut(Key::F4, minifb::MENU_KEY_ALT).build();
+        window.add_menu(&game_menu);
+        let mut options_menu = Menu::new("Options").unwrap();
+        let mut lang_menu = Menu::new("Language").unwrap();
+        lang_menu.add_item("English", MENU_ID_LANG_EN).build();
+        lang_menu.add_item("日本語", MENU_ID_LANG_JP).build();
+        options_menu.add_sub_menu("Language", &lang_menu);
+        window.add_menu(&options_menu);
+    }
 
     let mut showing_message_since: Option<Instant> = None;
 
@@ -58,11 +92,26 @@ fn main() {
         held: None,
     };
 
+    let mut needs_update = true;
     let mut move_count = 0;
     let mut is_game_over = false;
     let mut just_won = false;
     let mut just_lost = false;
     while window.is_open() && !window.is_key_down(Key::Escape) {
+        if let Some(menu_id) = window.is_menu_pressed() {
+            match menu_id {
+                MENU_ID_NEW_GAME => return GameEnd::Restart,
+                MENU_ID_QUIT => return GameEnd::Quit,
+                MENU_ID_LANG_EN | MENU_ID_LANG_JP => {
+                    cfg.lang = if menu_id == MENU_ID_LANG_EN { Lang::En } else { Lang::Jp };
+                    font = FontRef::try_from_slice(cfg.en_jp(FIRA_CODE_BYTES, NOTO_SANS_JP_BYTES)).unwrap();
+                    digits = cfg.en_jp(DIGITS_EN, DIGITS_JP);
+                    needs_update = true;
+                }
+                _ => {}
+            }
+        }
+
         // Skip processing clicks when the game is over.
         let mut was_input = !is_game_over;
         'input_block: {
@@ -176,7 +225,8 @@ fn main() {
         }
 
         // Skip updating the buffer until there is input.
-        if move_count == 0 || was_input {
+        needs_update |= was_input || move_count == 0;
+        if needs_update {
             for (i, px) in buffer.iter_mut().enumerate() {
                 let row = i / cfg.buffer_width;
                 let col = i % cfg.buffer_width;
@@ -281,12 +331,16 @@ fn main() {
             }
 
             window.set_title(&format!("Minesweeper - {mines_left}💣"));
+
+            needs_update = false;
         }
 
         window
             .update_with_buffer(&buffer, cfg.buffer_width, cfg.buffer_height)
             .unwrap();
     }
+
+    GameEnd::Quit
 }
 
 fn initialize_mines(
