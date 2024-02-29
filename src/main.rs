@@ -513,7 +513,7 @@ fn draw_char_in_cell(
         y += offset_y;
         let i = y * cfg.buffer_width + x;
         // Sometimes c is > 1.0 🤷
-        buffer[i] = lerp_colors(buffer[i], color, f32::max(c, 1.0));
+        buffer[i] = lerp_colors(buffer[i], color, f32::min(c, 1.0));
     });
 }
 
