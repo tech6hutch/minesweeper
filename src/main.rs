@@ -43,8 +43,12 @@ fn main() {
     let mut cfg: Option<Config> = if any_flags {
         let mut config = Config::default();
         if let Some(rows) = rows_arg {
-            let last_non_digit = rows.char_indices().rev().find_map(|(i, c)| (!c.is_ascii_digit()).then_some(i)).expect("this starts with a non digit");
-            let num = &rows[last_non_digit + 1 ..];
+            let last_non_digit = rows
+                .char_indices()
+                .rev()
+                .find_map(|(i, c)| (!c.is_ascii_digit()).then_some(i))
+                .expect("this starts with a non digit");
+            let num = &rows[last_non_digit + 1..];
             let Ok(num) = num.parse() else {
                 eprintln!("What kind of number is '{num}'?");
                 return;
@@ -52,8 +56,12 @@ fn main() {
             config.cell_rows = num;
         }
         if let Some(cols) = cols_arg {
-            let last_non_digit = cols.char_indices().rev().find_map(|(i, c)| (!c.is_ascii_digit()).then_some(i)).expect("this starts with a non digit");
-            let num = &cols[last_non_digit + 1 ..];
+            let last_non_digit = cols
+                .char_indices()
+                .rev()
+                .find_map(|(i, c)| (!c.is_ascii_digit()).then_some(i))
+                .expect("this starts with a non digit");
+            let num = &cols[last_non_digit + 1..];
             let Ok(num) = num.parse() else {
                 eprintln!("What kind of number is '{num}'?");
                 return;
@@ -61,8 +69,12 @@ fn main() {
             config.cell_cols = num;
         }
         if let Some(mines) = mines_arg {
-            let last_non_digit = mines.char_indices().rev().find_map(|(i, c)| (!c.is_ascii_digit()).then_some(i)).expect("this starts with a non digit");
-            let num = &mines[last_non_digit + 1 ..];
+            let last_non_digit = mines
+                .char_indices()
+                .rev()
+                .find_map(|(i, c)| (!c.is_ascii_digit()).then_some(i))
+                .expect("this starts with a non digit");
+            let num = &mines[last_non_digit + 1..];
             let Ok(num) = num.parse() else {
                 eprintln!("What kind of number is '{num}'?");
                 return;
@@ -108,8 +120,14 @@ fn run(cfg: &mut Config) -> GameEnd {
 
     {
         let mut game_menu = Menu::new("Game").unwrap();
-        game_menu.add_item("New Game", MENU_ID_NEW_GAME).shortcut(Key::N, minifb::MENU_KEY_CTRL).build();
-        game_menu.add_item("Quit", MENU_ID_QUIT).shortcut(Key::F4, minifb::MENU_KEY_ALT).build();
+        game_menu
+            .add_item("New Game", MENU_ID_NEW_GAME)
+            .shortcut(Key::N, minifb::MENU_KEY_CTRL)
+            .build();
+        game_menu
+            .add_item("Quit", MENU_ID_QUIT)
+            .shortcut(Key::F4, minifb::MENU_KEY_ALT)
+            .build();
         window.add_menu(&game_menu);
         let mut options_menu = Menu::new("Options").unwrap();
         let mut lang_menu = Menu::new("Language").unwrap();
@@ -153,8 +171,13 @@ fn run(cfg: &mut Config) -> GameEnd {
                 MENU_ID_NEW_GAME => return GameEnd::Restart,
                 MENU_ID_QUIT => return GameEnd::Quit,
                 MENU_ID_LANG_EN | MENU_ID_LANG_JP => {
-                    cfg.lang = if menu_id == MENU_ID_LANG_EN { Lang::En } else { Lang::Jp };
-                    font = FontRef::try_from_slice(cfg.en_jp(FIRA_CODE_BYTES, NOTO_SANS_JP_BYTES)).unwrap();
+                    cfg.lang = if menu_id == MENU_ID_LANG_EN {
+                        Lang::En
+                    } else {
+                        Lang::Jp
+                    };
+                    font = FontRef::try_from_slice(cfg.en_jp(FIRA_CODE_BYTES, NOTO_SANS_JP_BYTES))
+                        .unwrap();
                     digits = cfg.en_jp(DIGITS_EN, DIGITS_JP);
                     needs_update = true;
                 }
@@ -205,7 +228,14 @@ fn run(cfg: &mut Config) -> GameEnd {
                                     let cell = &mut cells[sy][sx];
                                     match cell {
                                         Cell::Unopened => {
-                                            open_cell(&cfg, sx, sy, &mut cells, &mine_counts);
+                                            open_cell(
+                                                &cfg,
+                                                sx,
+                                                sy,
+                                                &mut cells,
+                                                &mut mine_counts,
+                                                &mut mines,
+                                            );
                                             if mines[cfg.cell_coords_to_idx(sx, sy)] {
                                                 opened_any_mines = true;
                                             }
@@ -239,18 +269,24 @@ fn run(cfg: &mut Config) -> GameEnd {
                         match cell {
                             Cell::Unopened => {
                                 if move_count == 0 {
-                                    initialize_mines(&cfg, &mut rng, &mut mines, (cell_x, cell_y));
-                                    count_cell_mines(&cfg, &mut mine_counts, &mines);
+                                    initialize_mines(cfg, &mut rng, &mut mines, (cell_x, cell_y));
+                                    generate_mine_counts(cfg, &mut mine_counts, &mines);
                                 }
 
-                                open_cell(&cfg, cell_x, cell_y, &mut cells, &mine_counts);
+                                open_cell(
+                                    cfg,
+                                    cell_x,
+                                    cell_y,
+                                    &mut cells,
+                                    &mut mine_counts,
+                                    &mut mines,
+                                );
 
                                 move_count += 1;
 
                                 // Don't return/break so that the board gets updated one last time.
                                 just_lost = mines[cfg.cell_coords_to_idx(cell_x, cell_y)];
-                                just_won =
-                                    !just_lost && all_safe_cells_opened(&cfg, &mines, &cells);
+                                just_won = !just_lost && all_safe_cells_opened(cfg, &mines, &cells);
                                 is_game_over = is_game_over || just_lost || just_won;
                             }
                             Cell::Opened => {}
@@ -426,32 +462,44 @@ fn initialize_mines(
     debug_assert_eq!(cfg.mine_count, mines.iter().filter(|&&b| b).count());
 }
 
-fn count_cell_mines(cfg: &Config, mine_counts: &mut [u8], mines: &[bool]) {
+fn generate_mine_counts(cfg: &Config, mine_counts: &mut [u8], mines: &[bool]) {
     for cell_y in 0..cfg.cell_rows {
         for cell_x in 0..cfg.cell_cols {
-            let cnt = &mut mine_counts[cfg.cell_coords_to_idx(cell_x, cell_y)];
-            do_surrounding(&cfg, cell_x, cell_y, |sx, sy| {
-                if mines[cfg.cell_coords_to_idx(sx, sy)] {
-                    *cnt += 1;
-                }
-            });
+            mine_counts[cfg.cell_coords_to_idx(cell_x, cell_y)] =
+                count_nearby_mines(cfg, cell_x, cell_y, mines);
         }
     }
 }
 
-/// Opens the cell. If it's a 0, auto-opens the surrounding cells, etc.
+fn count_nearby_mines(cfg: &Config, cell_x: usize, cell_y: usize, mines: &[bool]) -> u8 {
+    let mut count = 0;
+    do_surrounding(cfg, cell_x, cell_y, |sx, sy| {
+        if mines[cfg.cell_coords_to_idx(sx, sy)] {
+            count += 1;
+        }
+    });
+    count
+}
+
+/// Opens the cell. If it's a 0, auto-opens the surrounding cells, etc. If it's
+/// a mine, tries to move it to a neighboring cell, if it wouldn't change the
+/// revealed information, to help reduce the need for the player to guess.
 fn open_cell(
     cfg: &Config,
     sx: usize,
     sy: usize,
     cells: &mut Vec<Vec<Cell>>,
-    mine_counts: &[u8],
+    mine_counts: &mut [u8],
+    mines: &mut Box<[bool]>,
 ) {
     let mut cells_to_process = Vec::new();
     if cells[sy][sx] == Cell::Unopened {
         cells_to_process.push((sx, sy));
     }
     while let Some((x, y)) = cells_to_process.pop() {
+        if mines[cfg.cell_coords_to_idx(x, y)] {
+            _ = try_move_mine(cfg, x, y, cells, mine_counts, mines);
+        }
         cells[y][x] = Cell::Opened;
         if mine_counts[cfg.cell_coords_to_idx(x, y)] == 0 {
             do_surrounding(cfg, x, y, |ssx, ssy| {
@@ -463,6 +511,86 @@ fn open_cell(
     }
 }
 
+fn try_move_mine(
+    cfg: &Config,
+    cell_x: usize,
+    cell_y: usize,
+    cells: &Vec<Vec<Cell>>,
+    mine_counts: &mut [u8],
+    mines: &mut Box<[bool]>,
+) -> bool {
+    let mut found_solution = false;
+    let mut new_mines = vec![false; mines.len()].into_boxed_slice();
+    do_surrounding(cfg, cell_x, cell_y, |sx, sy| {
+        // Can't move a mine onto a mine.
+        if found_solution || mines[cfg.cell_coords_to_idx(sx, sy)] {
+            if !found_solution {
+                println!("Anti-guess: rejected {sx},{sy} because there's a mine there.");
+            }
+            return;
+        }
+
+        new_mines.clone_from_slice(mines);
+        new_mines[cfg.cell_coords_to_idx(cell_x, cell_y)] = false;
+        new_mines[cfg.cell_coords_to_idx(sx, sy)] = true;
+
+        let mut any_changes_to_revealed_numbers = false;
+        let mut numbers_that_would_be_changed = Vec::new();
+        for (x, y) in [(cell_x, cell_y), (sx, sy)] {
+            do_surrounding(cfg, x, y, |ssx, ssy| {
+                if cells[ssy][ssx] == Cell::Opened
+                    && mine_counts[cfg.cell_coords_to_idx(ssx, ssy)]
+                        != count_nearby_mines(cfg, ssx, ssy, &new_mines)
+                {
+                    any_changes_to_revealed_numbers = true;
+                    if shared::DEBUG_ANTI_GUESS {
+                        numbers_that_would_be_changed.push((ssx, ssy, mine_counts[cfg.cell_coords_to_idx(ssx, ssy)]));
+                    }
+                }
+            });
+        }
+        if any_changes_to_revealed_numbers {
+            if shared::DEBUG_ANTI_GUESS {
+                println!(
+                    "Anti-guess: rejected {sx},{sy} because it would change the {}.",
+                    numbers_that_would_be_changed
+                        .into_iter()
+                        .map(|(_ssx, _ssy, num)| format!("{num}"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+            }
+            return;
+        }
+
+        found_solution = true;
+    });
+
+    if !found_solution {
+        return false;
+    }
+
+    if shared::DEBUG_ANTI_GUESS {
+        let differences: Vec<_> = (0..cfg.cell_rows)
+            .flat_map(|y| (0..cfg.cell_cols).map(move |x| (x, y)))
+            .filter(|&(x, y)| {
+                mines[cfg.cell_coords_to_idx(x, y)] != new_mines[cfg.cell_coords_to_idx(x, y)]
+                    && (x, y) != (cell_x, cell_y)
+            })
+            .collect();
+        let (new_x, new_y) = match *differences {
+            [coords] => coords,
+            [] => panic!("Moved a mine, but the board is identical?"),
+            [_, _, ..] => panic!("Moved a mine, but multiple cells changed?"),
+        };
+        println!("Anti-guess: moved a mine from {cell_x},{cell_y} to {new_x},{new_y}.");
+    }
+    *mines = new_mines;
+    // Regenerate the whole board so we can notice bugs more easily.
+    generate_mine_counts(cfg, mine_counts, mines);
+    true
+}
+
 fn all_safe_cells_opened(cfg: &Config, mines: &[bool], cells: &Vec<Vec<Cell>>) -> bool {
     !cells
         .iter()
@@ -471,7 +599,7 @@ fn all_safe_cells_opened(cfg: &Config, mines: &[bool], cells: &Vec<Vec<Cell>>) -
         .filter(|&(x, y)| !mines[cfg.cell_coords_to_idx(x, y)])
         .any(|(x, y)| {
             if cells[y][x] == Cell::Unopened {
-                if cfg!(debug_assertions) {
+                if shared::DEBUG_PRINTS {
                     println!("Some cells are still unopened (e.g., {x},{y}).");
                 }
                 true

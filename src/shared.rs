@@ -1,5 +1,8 @@
 use glam::IVec2;
 
+pub const DEBUG_PRINTS: bool = cfg!(debug_assertions);
+pub const DEBUG_ANTI_GUESS: bool = DEBUG_PRINTS;
+
 pub static FIRA_CODE_BYTES: &[u8] = include_bytes!("../fonts/Fira_Code/FiraCode-Regular.ttf");
 pub static NOTO_EMOJI_BYTES: &[u8] = include_bytes!("../fonts/Noto_Emoji/NotoEmoji-Regular.ttf");
 pub static NOTO_SANS_JP_BYTES: &[u8] =
@@ -139,7 +142,10 @@ pub fn lerp_colors(min: u32, max: u32, amt: f32) -> u32 {
 #[test]
 fn test_lerp_colors() {
     assert_eq!(lerp_colors(0x00000000, 0x00ff0000, 0.5), 0x007f0000);
-    assert_eq!(lerp_colors(0x00ff0000, 0x00000000, 0.5), 0x007f0000 + 0x00010000);
+    assert_eq!(
+        lerp_colors(0x00ff0000, 0x00000000, 0.5),
+        0x007f0000 + 0x00010000
+    );
     assert_eq!(lerp_colors(0x00000033, 0x00ff0033, 0.5), 0x007f0033);
 }
 
