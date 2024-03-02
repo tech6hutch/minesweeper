@@ -275,7 +275,7 @@ fn run(cfg: &mut Config) -> GameEnd {
         }
 
         // Skip updating the buffer until there is input.
-        needs_update |= was_input || move_count == 0;
+        needs_update |= was_input;
         if needs_update {
             for (i, px) in buffer.iter_mut().enumerate() {
                 let row = i / cfg.buffer_width;
