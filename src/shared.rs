@@ -35,14 +35,27 @@ pub const COLOR_BUTTON_SHADE: u32 = {
 pub const CELL_SIZE: usize = 32;
 pub const CELL_SIZE_F: f32 = 32.0;
 
-#[derive(Default)]
 pub struct Config {
     pub lang: Lang,
     pub cell_cols: usize,
     pub cell_rows: usize,
     pub mine_count: usize,
+    // These are set by the game window
     pub buffer_width: usize,
     pub buffer_height: usize,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            cell_cols: 10,
+            cell_rows: 10,
+            mine_count: 10,
+            lang: Default::default(),
+            buffer_width: Default::default(),
+            buffer_height: Default::default(),
+        }
+    }
 }
 
 impl Config {

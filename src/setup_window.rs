@@ -24,10 +24,11 @@ pub fn run(old_cfg: Option<Config>) -> Option<Config> {
     let font_jp = FontRef::try_from_slice(shared::NOTO_SANS_JP_BYTES).unwrap();
     let font_jp = font_jp.as_scaled(20.0);
 
-    let mut lang = old_cfg.as_ref().map(|cfg| cfg.lang).unwrap_or(Lang::En);
-    let mut rows: i32 = old_cfg.as_ref().map(|cfg| cfg.cell_rows as i32).unwrap_or(10);
-    let mut cols: i32 = old_cfg.as_ref().map(|cfg| cfg.cell_cols as i32).unwrap_or(10);
-    let mut mine_count: i32 = old_cfg.as_ref().map(|cfg| cfg.mine_count as i32).unwrap_or(10);
+    let old_cfg = old_cfg.unwrap_or_default();
+    let mut lang = old_cfg.lang;
+    let mut rows: i32 = old_cfg.cell_rows as i32;
+    let mut cols: i32 = old_cfg.cell_cols as i32;
+    let mut mine_count: i32 = old_cfg.mine_count as i32;
 
     let mut gui = GuiState {
         window: Window::new(
