@@ -3,10 +3,10 @@ use glam::IVec2;
 use minifb::{Key, Window};
 use std::collections::HashMap;
 
-use crate::shared::{self, Config, Lang};
-use crate::text;
+use crate::{game_window, shared, text};
+use shared::{Config, Lang};
 
-const SAFE_CELLS_FOR_FIRST_CLICK: i32 = crate::SAFE_CELLS_FOR_FIRST_CLICK as i32;
+const SAFE_CELLS_FOR_FIRST_CLICK: i32 = game_window::SAFE_CELLS_FOR_FIRST_CLICK as i32;
 
 // 4 is the minimum that doesn't crash :)
 const MIN_COLS: i32 = 4;
