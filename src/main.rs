@@ -412,6 +412,7 @@ fn initialize_mines(
     mine_squares.sort();
     let mut mines_placed = 0;
     if cfg.mine_count > 0 {
+        // TODO: I really only need to loop over mine_squares, don't I? But don't make this change until I solve other things.
         for i in 0..mines.len() {
             if !safe_zone.contains(&i) && mine_squares.binary_search(&i).is_ok() {
                 mines[i] = true;
@@ -438,7 +439,7 @@ fn count_cell_mines(cfg: &Config, mine_counts: &mut [u8], mines: &[bool]) {
     }
 }
 
-/// Auto-opens the cells surrounding a 0, recursively.
+/// Opens the cell. If it's a 0, auto-opens the surrounding cells, etc.
 fn open_cell(
     cfg: &Config,
     sx: usize,
@@ -446,15 +447,19 @@ fn open_cell(
     cells: &mut Vec<Vec<Cell>>,
     mine_counts: &[u8],
 ) {
-    let cell = &mut cells[sy][sx];
-    if *cell != Cell::Unopened {
-        return;
+    let mut cells_to_process = Vec::new();
+    if cells[sy][sx] == Cell::Unopened {
+        cells_to_process.push((sx, sy));
     }
-    *cell = Cell::Opened;
-    if mine_counts[cfg.cell_coords_to_idx(sx, sy)] == 0 {
-        do_surrounding(&cfg, sx, sy, |ssx, ssy| {
-            open_cell(&cfg, ssx, ssy, cells, mine_counts)
-        });
+    while let Some((x, y)) = cells_to_process.pop() {
+        cells[y][x] = Cell::Opened;
+        if mine_counts[cfg.cell_coords_to_idx(x, y)] == 0 {
+            do_surrounding(cfg, x, y, |ssx, ssy| {
+                if cells[ssy][ssx] == Cell::Unopened {
+                    cells_to_process.push((ssx, ssy));
+                }
+            });
+        }
     }
 }
 
