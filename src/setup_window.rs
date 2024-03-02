@@ -18,13 +18,12 @@ const WINDOW_WIDTH: usize = 300;
 const WINDOW_HEIGHT: usize = 300;
 const WINDOW_PADDING: i32 = 5;
 
-pub fn run(old_cfg: Option<Config>) -> Option<Config> {
+pub fn run(old_cfg: Config) -> Option<Config> {
     let font_en = FontRef::try_from_slice(shared::FIRA_CODE_BYTES).unwrap();
     let font_en = font_en.as_scaled(20.0);
     let font_jp = FontRef::try_from_slice(shared::NOTO_SANS_JP_BYTES).unwrap();
     let font_jp = font_jp.as_scaled(20.0);
 
-    let old_cfg = old_cfg.unwrap_or_default();
     let mut lang = old_cfg.lang;
     let mut rows: i32 = old_cfg.cell_rows as i32;
     let mut cols: i32 = old_cfg.cell_cols as i32;

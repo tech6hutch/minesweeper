@@ -8,76 +8,72 @@ use shared::Config;
 
 fn main() {
     let args: Vec<_> = std::env::args().collect();
+    let app_name = args
+        .first()
+        .map(|s| s.as_str())
+        .unwrap_or("minesweeper.exe");
+    let mut help_arg = false;
     let mut rows_arg: Option<&str> = None;
     let mut cols_arg: Option<&str> = None;
     let mut mines_arg: Option<&str> = None;
     for arg in args.iter().skip(1) {
-        if arg.starts_with("rows=") {
+        if matches!(arg.as_str(), "help" | "-h" | "-help" | "--help") {
+            help_arg = true;
+        } else if arg.starts_with("rows=") {
             rows_arg = Some(arg);
         } else if arg.starts_with("cols=") {
             cols_arg = Some(arg);
         } else if arg.starts_with("mines=") {
             mines_arg = Some(arg);
         } else {
-            eprintln!("Unknown flag '{arg}'");
+            eprint!("Unknown flag '{arg}'. ");
+            print_help(app_name);
             return;
         }
     }
-    let any_flags = args.len() > 1;
 
-    let mut cfg: Option<Config> = if any_flags {
-        let mut config = Config::default();
-        if let Some(rows) = rows_arg {
-            let last_non_digit = rows
-                .char_indices()
-                .rev()
-                .find_map(|(i, c)| (!c.is_ascii_digit()).then_some(i))
-                .expect("this starts with a non digit");
-            let num = &rows[last_non_digit + 1..];
-            let Ok(num) = num.parse() else {
-                eprintln!("What kind of number is '{num}'?");
-                return;
-            };
-            config.cell_rows = num;
-        }
-        if let Some(cols) = cols_arg {
-            let last_non_digit = cols
-                .char_indices()
-                .rev()
-                .find_map(|(i, c)| (!c.is_ascii_digit()).then_some(i))
-                .expect("this starts with a non digit");
-            let num = &cols[last_non_digit + 1..];
-            let Ok(num) = num.parse() else {
-                eprintln!("What kind of number is '{num}'?");
-                return;
-            };
-            config.cell_cols = num;
-        }
-        if let Some(mines) = mines_arg {
-            let last_non_digit = mines
-                .char_indices()
-                .rev()
-                .find_map(|(i, c)| (!c.is_ascii_digit()).then_some(i))
-                .expect("this starts with a non digit");
-            let num = &mines[last_non_digit + 1..];
-            let Ok(num) = num.parse() else {
-                eprintln!("What kind of number is '{num}'?");
-                return;
-            };
-            config.mine_count = num;
-        }
-        Some(config)
-    } else {
-        None
-    };
-    loop {
-        cfg = setup_window::run(cfg);
-        let Some(cfg) = cfg.as_mut() else {
-            return;
+    if help_arg {
+        print_help(app_name);
+        return;
+    }
+
+    fn parse_num_arg(arg: Option<&str>) -> Option<usize> {
+        let arg = arg?;
+        let equals_sign_idx = arg.find('=').expect("already checked to exist");
+        let num = &arg[equals_sign_idx + 1..];
+        let Ok(num) = num.parse() else {
+            eprintln!("What kind of number is '{num}'?");
+            return None;
         };
-        match game_window::run(cfg) {
+        Some(num)
+    }
+
+    let mut cfg = Config::default();
+    if let Some(rows) = parse_num_arg(rows_arg) {
+        cfg.cell_rows = rows;
+    }
+    if let Some(cols) = parse_num_arg(cols_arg) {
+        cfg.cell_cols = cols;
+    }
+    if let Some(mines) = parse_num_arg(mines_arg) {
+        cfg.mine_count = mines;
+    }
+    loop {
+        match setup_window::run(cfg) {
+            Some(new_cfg) => cfg = new_cfg,
+            None => return,
+        }
+        match game_window::run(&mut cfg) {
             GameEnd::Restart => {}
             GameEnd::Quit => return,
         }
     }
+}
+
+fn print_help(app_name: &str) {
+    let default_cfg = Config::default();
+    eprintln!(
+        "USAGE: {app_name} [rows={}] [cols={}] [mines={}]",
+        default_cfg.cell_rows, default_cfg.cell_cols, default_cfg.mine_count
+    );
 }
