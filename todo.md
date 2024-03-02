@@ -1,4 +1,2 @@
-- Idea to reduce guessing: when the player clicks a bomb, if it can be moved without changing the displayed numbers, move it silently.
-    - Only apply to cells that are surrounded by at least one open cell, to prevent clicking randomly in the unopened part of the board.
 - Choose better colors
     - Maybe button borders could have a more yellowish white, to match better with the button itself
