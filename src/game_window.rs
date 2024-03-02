@@ -1,3 +1,7 @@
+// It complains about `&Vec<Vec<_>>`. I'm not incurring the complexity of making
+// them _and_ their contents generic.
+#![allow(clippy::ptr_arg)]
+
 use ab_glyph::{Font, FontRef, ScaleFont};
 use glam::IVec2;
 use minifb::{Key, Menu, MouseButton, MouseMode, Window};
@@ -116,9 +120,9 @@ pub fn run(cfg: &mut Config) -> GameEnd {
                     .map(|d| Instant::now() - d > Duration::from_secs_f32(1.0))
                     .unwrap_or(false);
             if accept_input {
-                let mut left_click_cell = mouse_left.check(&cfg, &window);
-                let mut middle_click_cell = mouse_middle.check(&cfg, &window);
-                let mut right_click_cell = mouse_right.check(&cfg, &window);
+                let mut left_click_cell = mouse_left.check(cfg, &window);
+                let mut middle_click_cell = mouse_middle.check(cfg, &window);
+                let mut right_click_cell = mouse_right.check(cfg, &window);
                 if showing_message_since.is_some() && left_click_cell.is_some() {
                     was_input = true; // update window
                     showing_message_since = None;
@@ -139,7 +143,7 @@ pub fn run(cfg: &mut Config) -> GameEnd {
                         Cell::Unopened | Cell::Flagged => {}
                         Cell::Opened => {
                             let mut flag_count = 0;
-                            do_surrounding(&cfg, cell_x, cell_y, |sx, sy| {
+                            do_surrounding(cfg, cell_x, cell_y, |sx, sy| {
                                 if cells[sy][sx] == Cell::Flagged {
                                     flag_count += 1;
                                 }
@@ -147,12 +151,12 @@ pub fn run(cfg: &mut Config) -> GameEnd {
                             let mine_count = mine_counts[cfg.cell_coords_to_idx(cell_x, cell_y)];
                             if flag_count == mine_count {
                                 let mut opened_any_mines = false;
-                                do_surrounding(&cfg, cell_x, cell_y, |sx, sy| {
+                                do_surrounding(cfg, cell_x, cell_y, |sx, sy| {
                                     let cell = &mut cells[sy][sx];
                                     match cell {
                                         Cell::Unopened => {
                                             open_cell(
-                                                &cfg,
+                                                cfg,
                                                 sx,
                                                 sy,
                                                 &mut cells,
@@ -169,8 +173,7 @@ pub fn run(cfg: &mut Config) -> GameEnd {
                                 move_count += 1;
                                 // Don't return/break so that the board gets updated one last time.
                                 just_lost = opened_any_mines;
-                                just_won =
-                                    !just_lost && all_safe_cells_opened(&cfg, &mines, &cells);
+                                just_won = !just_lost && all_safe_cells_opened(cfg, &mines, &cells);
                                 is_game_over = is_game_over || just_lost || just_won;
                             } else {
                                 play_bell();
@@ -179,8 +182,8 @@ pub fn run(cfg: &mut Config) -> GameEnd {
                     }
                 } else {
                     // If the *other* button is clicked, it seems like a misclick.
-                    left_click_cell = left_click_cell.filter(|_| !mouse_right.held.is_some());
-                    right_click_cell = right_click_cell.filter(|_| !mouse_left.held.is_some());
+                    left_click_cell = left_click_cell.filter(|_| mouse_right.held.is_none());
+                    right_click_cell = right_click_cell.filter(|_| mouse_left.held.is_none());
                     if left_click_cell.is_some()
                         && right_click_cell.is_none()
                         && (window.is_key_down(Key::LeftCtrl) || window.is_key_down(Key::RightCtrl))
@@ -263,7 +266,7 @@ pub fn run(cfg: &mut Config) -> GameEnd {
                         Cell::Unopened => {
                             if is_game_over && mines[i] {
                                 draw_char_in_cell(
-                                    &cfg,
+                                    cfg,
                                     &emoji_font,
                                     '💣',
                                     shared::COLOR_TEXT_DARK,
@@ -277,7 +280,7 @@ pub fn run(cfg: &mut Config) -> GameEnd {
                         Cell::Opened => {
                             if mines[i] {
                                 draw_char_in_cell(
-                                    &cfg,
+                                    cfg,
                                     &emoji_font,
                                     '💣',
                                     shared::COLOR_TEXT_LIGHT,
@@ -291,8 +294,8 @@ pub fn run(cfg: &mut Config) -> GameEnd {
                             let mine_count = mine_counts[i];
                             if mine_count > 0 {
                                 draw_char_in_cell(
-                                    &cfg,
-                                    &font,
+                                    cfg,
+                                    font,
                                     digits[usize::from(mine_count)],
                                     shared::COLOR_TEXT_LIGHT,
                                     cell_x,
@@ -305,7 +308,7 @@ pub fn run(cfg: &mut Config) -> GameEnd {
                         Cell::Flagged => {
                             mines_left -= 1;
                             draw_char_in_cell(
-                                &cfg,
+                                cfg,
                                 &emoji_font,
                                 '🚩',
                                 if is_game_over && !mines[i] {
@@ -325,7 +328,7 @@ pub fn run(cfg: &mut Config) -> GameEnd {
             if just_won || just_lost {
                 let font = font.as_scaled(CELL_SIZE_F);
                 show_message(
-                    &cfg,
+                    cfg,
                     if just_won {
                         cfg.en_jp("You won!", "やった！")
                     } else {
@@ -361,24 +364,24 @@ fn initialize_mines(
     let (click_x, click_y) = first_click;
     let mut safe_zone = Vec::with_capacity(SAFE_CELLS_FOR_FIRST_CLICK);
     safe_zone.push(cfg.cell_coords_to_idx(click_x, click_y));
-    do_surrounding(&cfg, click_x, click_y, |sx, sy| {
+    do_surrounding(cfg, click_x, click_y, |sx, sy| {
         safe_zone.push(cfg.cell_coords_to_idx(sx, sy))
     });
-    let mut mine_squares = rng.choose_multiple(
+    let random_indices = rng.choose_multiple(
         0..cfg.cell_rows * cfg.cell_cols,
         cfg.mine_count + SAFE_CELLS_FOR_FIRST_CLICK,
     );
-    mine_squares.sort();
     let mut mines_placed = 0;
+    mines.fill(false);
     if cfg.mine_count > 0 {
-        // TODO: I really only need to loop over mine_squares, don't I? But don't make this change until I solve other things.
-        for i in 0..mines.len() {
-            if !safe_zone.contains(&i) && mine_squares.binary_search(&i).is_ok() {
-                mines[i] = true;
-                mines_placed += 1;
-                if mines_placed == cfg.mine_count {
-                    break;
-                }
+        for i in random_indices {
+            if safe_zone.contains(&i) {
+                continue;
+            }
+            mines[i] = true;
+            mines_placed += 1;
+            if mines_placed == cfg.mine_count {
+                break;
             }
         }
     }
@@ -536,7 +539,7 @@ fn all_safe_cells_opened(cfg: &Config, mines: &[bool], cells: &Vec<Vec<Cell>>) -
         })
 }
 
-fn show_message<F, FS>(cfg: &Config, msg: &str, font: FS, mut buffer: &mut [u32])
+fn show_message<F, FS>(cfg: &Config, msg: &str, font: FS, buffer: &mut [u32])
 where
     F: Font,
     FS: ScaleFont<F>,
@@ -559,7 +562,7 @@ where
             IVec2::new(box_left as i32, box_top as i32),
             IVec2::new(box_width as i32, box_height as i32),
             shared::COLOR_MESSAGE_BORDER,
-            &mut buffer,
+            buffer,
             cfg.buffer_width,
         );
         shared::draw_rectangle(
@@ -569,7 +572,7 @@ where
                 (box_height - outline * 2) as i32,
             ),
             shared::COLOR_MESSAGE_BOX,
-            &mut buffer,
+            buffer,
             cfg.buffer_width,
         );
     }
@@ -578,7 +581,7 @@ where
         IVec2::new(left_margin as i32, top_margin as i32),
         &font,
         shared::COLOR_MESSAGE_TEXT,
-        &mut buffer,
+        buffer,
         cfg.buffer_width,
     );
 }
@@ -598,7 +601,7 @@ struct CellsMouseState {
 impl CellsMouseState {
     fn check(&mut self, cfg: &Config, window: &Window) -> Option<(usize, usize)> {
         if window.get_mouse_down(self.button) {
-            if let Some(_) = self.held {
+            if self.held.is_some() {
                 // The mouse was clicked in a previous frame. We're waiting for it to be released.
             } else if let Some(pos) = window.get_mouse_pos(MouseMode::Discard) {
                 self.held = cfg.pos_to_cell_f(pos);
@@ -617,7 +620,7 @@ impl CellsMouseState {
             }
             return None;
         }
-        return None;
+        None
     }
 }
 
@@ -684,6 +687,6 @@ fn draw_char_in_cell(
 fn play_bell() {
     use std::io::Write;
     let mut stdout = std::io::stdout();
-    stdout.write(b"\x07").unwrap();
+    stdout.write_all(b"\x07").unwrap();
     stdout.flush().unwrap();
 }
