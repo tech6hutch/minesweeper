@@ -34,6 +34,8 @@ pub const COLOR_BUTTON_SHADE: u32 = {
     ])
 };
 
+pub const COLOR_TEXT_CURSOR: u32 = 0x000000ff;
+
 // In pixels
 pub const CELL_SIZE: usize = 32;
 pub const CELL_SIZE_F: f32 = 32.0;

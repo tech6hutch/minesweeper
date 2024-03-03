@@ -1,7 +1,11 @@
-use ab_glyph::{Font, FontRef, Glyph, PxScaleFont};
+use ab_glyph::{Font, FontRef, Glyph, PxScaleFont, ScaleFont};
 use glam::IVec2;
 use minifb::{Key, Window};
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    mem,
+    time::{Duration, Instant},
+};
 
 use crate::{game_window, shared, text};
 use shared::{Config, Lang};
@@ -44,6 +48,11 @@ pub fn run(old_cfg: Config) -> Option<Config> {
         _mouse_was_oob: false,
         is_left_click_down: false,
         left_click_down_pos: None,
+        is_left_click_handled: true,
+
+        next_widget_id: 0,
+        active_input: None,
+        inactive_input: None,
 
         font: lang.en_jp(&font_en, &font_jp),
         font_en: &font_en,
@@ -59,7 +68,7 @@ pub fn run(old_cfg: Config) -> Option<Config> {
     let mut needs_update = true;
     'window_loop: while gui.window.is_open() && !gui.window.is_key_down(Key::Escape) {
         let was_input = gui.update_input();
-        needs_update |= was_input;
+        needs_update |= was_input | gui.text_cursor_needs_update();
 
         // Break from this block to cancel the draw update, but get new input
         // info (redrawing the previous, complete buffer).
@@ -139,6 +148,17 @@ const BORDER_SIZE: i32 = 2;
 const BUTTON_PADDING_HORIZONTAL: i32 = 8;
 const BUTTON_PADDING_VERTICAL: i32 = 5;
 
+const NUM_KEYS: [Key; 10] = {
+    use Key::*;
+    [Key0, Key1, Key2, Key3, Key4, Key5, Key6, Key7, Key8, Key9]
+};
+const NUM_PAD_KEYS: [Key; 10] = {
+    use Key::*;
+    [
+        NumPad0, NumPad1, NumPad2, NumPad3, NumPad4, NumPad5, NumPad6, NumPad7, NumPad8, NumPad9,
+    ]
+};
+
 type GuiFontRef<'a> = &'a PxScaleFont<&'a FontRef<'static>>;
 
 struct GuiState<'f> {
@@ -153,6 +173,14 @@ struct GuiState<'f> {
     is_left_click_down: bool,
     /// The position of the mouse when the mouse button was first pressed down.
     left_click_down_pos: Option<IVec2>,
+    /// Whether a widget has handled the click on this frame.
+    is_left_click_handled: bool,
+
+    next_widget_id: u16,
+    /// The currently active input field.
+    active_input: Option<ActiveInput<i32>>,
+    /// The soon-to-be-formerly active input field.
+    inactive_input: Option<ActiveInput<i32>>,
 
     font: GuiFontRef<'f>,
     font_en: GuiFontRef<'f>,
@@ -170,42 +198,75 @@ struct GuiState<'f> {
 impl<'f> GuiState<'f> {
     /// Returns whether there was any input.
     fn update_input(&mut self) -> bool {
+        // Misc resetting
+        {
+            self.next_widget_id = 0;
+        }
+
+        // Update mouse input
         let was_left_click_down = self.is_left_click_down;
         self.is_left_click_down = self.window.get_mouse_down(minifb::MouseButton::Left);
-        let mut mouse_is_oob = false;
-        // Skip getting the mouse position if there aren't clicks to handle.
-        self.mouse_pos = if was_left_click_down || self.is_left_click_down {
-            if let Some((x_f, y_f)) = self.window.get_mouse_pos(minifb::MouseMode::Discard) {
-                Some(IVec2 {
-                    x: x_f as i32,
-                    y: y_f as i32,
-                })
-            } else {
-                mouse_is_oob = true;
-                None
-            }
-        } else {
-            None
-        };
-        match (was_left_click_down, self.is_left_click_down) {
-            // The mouse button is being held, keep the initial value
-            (true, true) => {}
-            // Keep the value around for the next frame, unless...
-            (true, false) => {
-                if self._mouse_was_oob {
-                    // minifb doesn't notice mouse btn releases until it returns to the window; fix for
-                    // https://github.com/emoon/rust_minifb/issues/345
-                    self.left_click_down_pos = None;
+        let handling_left_click = was_left_click_down || self.is_left_click_down;
+        {
+            let mut mouse_is_oob = false;
+            // Skip getting the mouse position if there aren't clicks to handle.
+            self.mouse_pos = if handling_left_click {
+                if let Some((x_f, y_f)) = self.window.get_mouse_pos(minifb::MouseMode::Discard) {
+                    Some(IVec2 {
+                        x: x_f as i32,
+                        y: y_f as i32,
+                    })
+                } else {
+                    mouse_is_oob = true;
+                    None
                 }
+            } else {
+                None
+            };
+            match (was_left_click_down, self.is_left_click_down) {
+                // The mouse button is being held, keep the initial value
+                (true, true) => {}
+                // Keep the value around for the next frame, unless...
+                (true, false) => {
+                    if self._mouse_was_oob {
+                        // minifb doesn't notice mouse btn releases until it returns to the window; fix for
+                        // https://github.com/emoon/rust_minifb/issues/345
+                        self.left_click_down_pos = None;
+                    }
+                }
+                // Record initial click position
+                (false, true) => self.left_click_down_pos = self.mouse_pos,
+                // We're done with any value in it now
+                (false, false) => self.left_click_down_pos = None,
             }
-            // Record initial click position
-            (false, true) => self.left_click_down_pos = self.mouse_pos,
-            // We're done with any value in it now
-            (false, false) => self.left_click_down_pos = None,
+            self._mouse_was_oob = mouse_is_oob;
         }
-        self._mouse_was_oob = mouse_is_oob;
 
-        was_left_click_down || self.is_left_click_down
+        let mut was_input = handling_left_click || !self.window.get_keys_released().is_empty();
+        // Handle unhandled input
+        {
+            if !self.is_left_click_handled {
+                if self.active_input.is_some() {
+                    self.inactive_input = mem::take(&mut self.active_input);
+                }
+                was_input |= self.is_left_click_handled;
+            }
+            self.is_left_click_handled = !handling_left_click;
+        }
+        was_input
+    }
+
+    fn text_cursor_needs_update(&mut self) -> bool {
+        let Some(active_input) = self.active_input.as_mut() else {
+            return false;
+        };
+        let blink = active_input.text_cursor_blink();
+        if blink != active_input.text_cursor_anim_last_drawn_blink {
+            active_input.text_cursor_anim_last_drawn_blink = blink;
+            true
+        } else {
+            false
+        }
     }
 
     fn new_line(&mut self) {
@@ -264,8 +325,39 @@ impl<'f> GuiState<'f> {
         self.caret.x += outer_size.x + self.padding.x;
     }
 
-    /// Draws/handles a number input. Returns true if the value was (attempted to be) changed.
+    /// Draws/handles a number input. Returns true if the value changed or the input needs redrawn.
+    /// When the input is active, the actual value doesn't change until the user clicks away,
+    /// despite appearing visually to change.
     fn number_input(&mut self, num: &mut i32) -> bool {
+        let id = self.take_id();
+        if let Some(inactive_input) = self.inactive_input.as_ref() {
+            if inactive_input.id == id {
+                *num = inactive_input.text;
+                self.inactive_input = None;
+                return true;
+            }
+        }
+
+        if let Some(mut active_input) = self.active_input.clone() {
+            if active_input.id == id {
+                let draw_cursor = active_input.text_cursor_blink();
+                let mutated = self._number_input(&mut active_input.text, id, true, draw_cursor);
+                if mutated {
+                    self.active_input = Some(active_input);
+                    return true;
+                }
+                return false;
+            }
+        }
+        self._number_input(num, id, false, false)
+    }
+    fn _number_input(
+        &mut self,
+        num: &mut i32,
+        id: u16,
+        is_active: bool,
+        draw_cursor: bool,
+    ) -> bool {
         if self.button("-") {
             *num = num.saturating_sub(1);
             return true;
@@ -278,21 +370,37 @@ impl<'f> GuiState<'f> {
             let mut glyphs = Vec::new();
             let glyphs_size = text::layout_paragraph(font, f32::INFINITY, text.str, &mut glyphs);
 
-            let inner_size = glyphs_size
-                + IVec2 {
-                    x: BUTTON_PADDING_HORIZONTAL * 2,
-                    y: BUTTON_PADDING_VERTICAL * 2,
-                };
-            let outer_size = inner_size + IVec2::splat(BORDER_SIZE * 2);
+            static PADDING: IVec2 = IVec2 {
+                x: BUTTON_PADDING_HORIZONTAL,
+                y: BUTTON_PADDING_VERTICAL,
+            };
+            static HALF_PADDING: IVec2 = IVec2 {
+                x: PADDING.x / 2,
+                y: PADDING.y / 2,
+            };
+            // This may be different if the padding is an odd number.
+            static OTHER_HALF_PADDING: IVec2 = IVec2 {
+                x: BUTTON_PADDING_HORIZONTAL - HALF_PADDING.x,
+                y: BUTTON_PADDING_VERTICAL - HALF_PADDING.y,
+            };
+            let bordered_contents_size = glyphs_size + PADDING;
+            let bordered_size = bordered_contents_size + IVec2::splat(BORDER_SIZE * 2);
+            let outer_size = bordered_size + PADDING;
             self.wrap_if_needed(outer_size);
-            let mut caret = self.caret;
+
+            let click_bounds = (self.caret, self.caret + outer_size);
+            if !is_active && self._take_click(click_bounds, Some(id)) == ClickState::Clicked {
+                self.active_input = Some(ActiveInput::new(id, *num));
+                return false;
+            }
 
             // Draw the outline
+            let mut caret = self.caret + HALF_PADDING;
             let bg_color =
                 self.buffer[self.caret.y as usize * self.buffer_width + self.caret.x as usize];
             shared::draw_rectangle(
                 caret,
-                outer_size,
+                bordered_size,
                 shared::COLOR_BUTTON_TEXT,
                 &mut self.buffer,
                 self.buffer_width,
@@ -300,13 +408,63 @@ impl<'f> GuiState<'f> {
             caret += IVec2::splat(BORDER_SIZE);
             shared::draw_rectangle(
                 caret,
-                inner_size,
+                bordered_contents_size,
                 bg_color,
                 &mut self.buffer,
                 self.buffer_width,
             );
-            caret += IVec2::new(BUTTON_PADDING_HORIZONTAL, BUTTON_PADDING_VERTICAL);
 
+            // Draw the text
+            caret += OTHER_HALF_PADDING; // makes the whole thing look more centered
+            if is_active {
+                if self.window.is_key_released(Key::Backspace) {
+                    *num /= 10;
+                    return true;
+                }
+
+                let get_pressed_num = |keys: [Key; 10]| -> Option<u8> {
+                    for key in keys {
+                        if self.window.is_key_released(key) {
+                            return Some(key as u8 - keys[0] as u8);
+                        }
+                    }
+                    keys.into_iter()
+                        .find(|&key| self.window.is_key_released(key))
+                        .map(|key| key as u8 - keys[0] as u8)
+                };
+                let pressed_num =
+                    get_pressed_num(NUM_KEYS).or_else(|| get_pressed_num(NUM_PAD_KEYS));
+                if let Some(pressed_num) = pressed_num {
+                    // Do num *= 10 and num += pressed_num, but without crashing
+                    // or changing into 4294967295 when the number gets too big.
+                    if let Some(new_num) = num
+                        .checked_mul(10)
+                        .and_then(|n| n.checked_add(i32::from(pressed_num)))
+                    {
+                        *num = new_num;
+                    }
+                    return true;
+                }
+
+                // Draw the text cursor if needed
+                if draw_cursor {
+                    let last_glyph = glyphs.last().cloned().unwrap();
+                    shared::draw_rectangle(
+                        caret
+                            + IVec2 {
+                                x: last_glyph.position.x as i32,
+                                y: 0,
+                            },
+                        IVec2 {
+                            x: glyphs_size.x - last_glyph.position.x as i32,
+                            y: font.height() as i32,
+                        },
+                        shared::COLOR_TEXT_CURSOR,
+                        &mut self.buffer,
+                        self.buffer_width,
+                    );
+                }
+            }
             self._draw_glyphs_at(glyphs, font, caret, shared::COLOR_BUTTON_TEXT);
 
             self.caret.x += outer_size.x + self.padding.x;
@@ -347,26 +505,10 @@ impl<'f> GuiState<'f> {
 
         caret += IVec2::splat(BORDER_SIZE);
         let btn_bounds = (caret, caret + inner_size);
-        let mut held = false;
-        let mut clicked = false;
-        // This can look slightly less stupid when let-chains are stabilized:
-        // https://github.com/rust-lang/rust/issues/53667
-        if let Some(down_pos) = self.left_click_down_pos {
-            if point_in_rect(down_pos, btn_bounds) {
-                if let Some(current_pos) = self.mouse_pos {
-                    if point_in_rect(current_pos, btn_bounds) {
-                        if self.is_left_click_down {
-                            held = true;
-                        } else {
-                            clicked = true;
-                        }
-                    }
-                }
-            }
-        }
+        let click_state = self._take_click(btn_bounds, None);
 
         // Draw the inside of the button
-        if held {
+        if click_state == ClickState::Held {
             shared::draw_rectangle(
                 caret,
                 inner_size,
@@ -397,7 +539,7 @@ impl<'f> GuiState<'f> {
 
         self.caret.x += outer_size.x + self.padding.x;
 
-        clicked
+        click_state == ClickState::Clicked
     }
 
     /// Draws/handles a set of related buttons where one is always active. Returns true if any were clicked.
@@ -416,6 +558,11 @@ impl<'f> GuiState<'f> {
         clicked_any
     }
 
+    fn take_id(&mut self) -> u16 {
+        self.next_widget_id += 1;
+        self.next_widget_id - 1
+    }
+
     fn _draw_glyphs_at(&mut self, glyphs: Vec<Glyph>, font: GuiFontRef, caret: IVec2, color: u32) {
         text::draw_glyphs(
             glyphs.into_iter(),
@@ -426,6 +573,68 @@ impl<'f> GuiState<'f> {
             self.buffer_width,
         );
     }
+
+    fn _take_click(&mut self, rect: (IVec2, IVec2), id: Option<u16>) -> ClickState {
+        // This can look slightly less stupid when let-chains are stabilized:
+        // https://github.com/rust-lang/rust/issues/53667
+        if self.is_left_click_handled {
+            return ClickState::Not;
+        }
+        if let Some(down_pos) = self.left_click_down_pos {
+            if point_in_rect(down_pos, rect) {
+                if let Some(current_pos) = self.mouse_pos {
+                    if point_in_rect(current_pos, rect) {
+                        self.is_left_click_handled = true;
+                        if let Some(active_input) = self.active_input.as_ref() {
+                            if Some(active_input.id) != id {
+                                self.inactive_input = mem::take(&mut self.active_input);
+                                self.active_input = None;
+                            }
+                        }
+                        return if self.is_left_click_down {
+                            ClickState::Held
+                        } else {
+                            ClickState::Clicked
+                        };
+                    }
+                }
+            }
+        }
+        ClickState::Not
+    }
+}
+
+#[derive(Clone)]
+struct ActiveInput<T> {
+    id: u16,
+    text: T,
+    text_cursor_anim_start: Instant,
+    text_cursor_anim_last_drawn_blink: bool,
+}
+impl<T> ActiveInput<T> {
+    const TEXT_CURSOR_BLINK_RATE: u128 = Duration::from_secs(1).as_millis();
+
+    fn new(id: u16, initial_text: T) -> Self {
+        Self {
+            id,
+            text: initial_text,
+            text_cursor_anim_start: Instant::now(),
+            text_cursor_anim_last_drawn_blink: false,
+        }
+    }
+
+    /// Whether the text cursor should be solid.
+    fn text_cursor_blink(&self) -> bool {
+        ((Instant::now() - self.text_cursor_anim_start).as_millis() % Self::TEXT_CURSOR_BLINK_RATE)
+            < Self::TEXT_CURSOR_BLINK_RATE / 2
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Eq)]
+enum ClickState {
+    Not,
+    Held,
+    Clicked,
 }
 
 #[derive(Copy, Clone)]
