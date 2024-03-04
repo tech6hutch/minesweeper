@@ -4,7 +4,7 @@
 
 use ab_glyph::{Font, FontRef, ScaleFont};
 use glam::IVec2;
-use minifb::{Key, Menu, MouseButton, MouseMode, Window};
+use minifb::{Key, Menu, MenuHandle, MouseButton, MouseMode, Window};
 use std::time::{Duration, Instant};
 
 use crate::{shared, text};
@@ -46,24 +46,40 @@ pub fn run(cfg: &mut Config) -> GameEnd {
     const MENU_ID_LANG_EN: usize = 3;
     const MENU_ID_LANG_JP: usize = 4;
 
-    {
-        let mut game_menu = Menu::new("Game").unwrap();
+    fn create_menubar(cfg: &Config, window: &mut Window) -> Vec<MenuHandle> {
+        let mut menu_handles = Vec::new();
+
+        let mut game_menu = Menu::new(cfg.en_jp("Game", "ゲーム")).unwrap();
         game_menu
-            .add_item("New Game", MENU_ID_NEW_GAME)
+            .add_item(cfg.en_jp("New Game", "新しいゲーム"), MENU_ID_NEW_GAME)
             .shortcut(Key::N, minifb::MENU_KEY_CTRL)
             .build();
         game_menu
-            .add_item("Quit", MENU_ID_QUIT)
+            .add_item(cfg.en_jp("Quit", "ゲームをやめる"), MENU_ID_QUIT)
             .shortcut(Key::F4, minifb::MENU_KEY_ALT)
             .build();
-        window.add_menu(&game_menu);
-        let mut options_menu = Menu::new("Options").unwrap();
-        let mut lang_menu = Menu::new("Language").unwrap();
-        lang_menu.add_item("English", MENU_ID_LANG_EN).build();
-        lang_menu.add_item("日本語", MENU_ID_LANG_JP).build();
-        options_menu.add_sub_menu("Language", &lang_menu);
-        window.add_menu(&options_menu);
+        menu_handles.push(window.add_menu(&game_menu));
+
+        let mut options_menu = Menu::new(cfg.en_jp("Options", "設定")).unwrap();
+        let mut lang_menu = Menu::new(cfg.en_jp("Language", "言語")).unwrap();
+        lang_menu
+            .add_item(cfg.en_jp("English", "English（英語）"), MENU_ID_LANG_EN)
+            .build();
+        lang_menu
+            .add_item(cfg.en_jp("日本語 (Japanese)", "日本語"), MENU_ID_LANG_JP)
+            .build();
+        options_menu.add_sub_menu(cfg.en_jp("Language", "言語"), &lang_menu);
+        menu_handles.push(window.add_menu(&options_menu));
+
+        menu_handles
     }
+    fn destroy_menubar(window: &mut Window, menu_handles: Vec<MenuHandle>) {
+        for menu_handle in menu_handles {
+            window.remove_menu(menu_handle);
+        }
+    }
+
+    let mut menu_handles = create_menubar(cfg, &mut window);
 
     let mut showing_message_since: Option<Instant> = None;
 
@@ -107,6 +123,8 @@ pub fn run(cfg: &mut Config) -> GameEnd {
                     font = cfg.en_jp(&font_en, &font_jp);
                     digits = cfg.en_jp(DIGITS_EN, DIGITS_JP);
                     needs_update = true;
+                    destroy_menubar(&mut window, menu_handles);
+                    menu_handles = create_menubar(cfg, &mut window);
                 }
                 _ => {}
             }
@@ -342,7 +360,10 @@ pub fn run(cfg: &mut Config) -> GameEnd {
                 just_lost = false;
             }
 
-            window.set_title(&format!("Minesweeper - {mines_left}💣"));
+            window.set_title(&format!(
+                "{} - {mines_left}💣",
+                cfg.en_jp("Minesweeper", "マインスイーパ")
+            ));
 
             needs_update = false;
         }

@@ -21,6 +21,8 @@ const MAX_ROWS: i32 = 99;
 const WINDOW_WIDTH: usize = 300;
 const WINDOW_HEIGHT: usize = 300;
 const WINDOW_PADDING: i32 = 5;
+const WINDOW_TITLE_EN: &str = "Minesweeper - Setup";
+const WINDOW_TITLE_JP: &str = "マインスイーパ - 設定";
 
 pub fn run(old_cfg: Config) -> Option<Config> {
     let font_en = FontRef::try_from_slice(shared::FIRA_CODE_BYTES).unwrap();
@@ -35,7 +37,7 @@ pub fn run(old_cfg: Config) -> Option<Config> {
 
     let mut gui = GuiState {
         window: Window::new(
-            "Minesweeper - Setup",
+            lang.en_jp(WINDOW_TITLE_EN, WINDOW_TITLE_JP),
             WINDOW_WIDTH,
             WINDOW_HEIGHT,
             Default::default(),
@@ -88,6 +90,8 @@ pub fn run(old_cfg: Config) -> Option<Config> {
             ) {
                 lang = [Lang::En, Lang::Jp][usize::from(lang_btn)];
                 gui.font = [gui.font_en, gui.font_jp][usize::from(lang_btn)];
+                gui.window
+                    .set_title(lang.en_jp(WINDOW_TITLE_EN, WINDOW_TITLE_JP));
                 break 'update_buffer;
             }
             gui.new_line();
