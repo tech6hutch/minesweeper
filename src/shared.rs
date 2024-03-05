@@ -53,9 +53,9 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            cell_cols: 10,
-            cell_rows: 10,
-            mine_count: 10,
+            cell_cols: 15,
+            cell_rows: 15,
+            mine_count: 100,
             lang: Default::default(),
             buffer_width: Default::default(),
             buffer_height: Default::default(),

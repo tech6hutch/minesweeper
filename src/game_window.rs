@@ -444,7 +444,7 @@ fn open_cell(
         cells_to_process.push((sx, sy));
     }
     while let Some((x, y)) = cells_to_process.pop() {
-        if mines[cfg.cell_coords_to_idx(x, y)] {
+        if !mines[cfg.cell_coords_to_idx(x, y)] {
             _ = try_move_mine(cfg, x, y, cells, mine_counts, mines);
         }
         cells[y][x] = Cell::Opened;
@@ -469,17 +469,17 @@ fn try_move_mine(
     let mut found_solution = false;
     let mut new_mines = vec![false; mines.len()].into_boxed_slice();
     do_surrounding(cfg, cell_x, cell_y, |sx, sy| {
-        // Can't move a mine onto a mine.
-        if found_solution || mines[cfg.cell_coords_to_idx(sx, sy)] {
-            if !found_solution {
-                println!("Anti-guess: rejected {sx},{sy} because there's a mine there.");
+        // Can't grab a mine from a non-mine.
+        if found_solution || !mines[cfg.cell_coords_to_idx(sx, sy)] {
+            if shared::DEBUG_ANTI_GUESS && !found_solution {
+                println!("Anti-guess: rejected {sx},{sy} because there's no mine there.");
             }
             return;
         }
 
         new_mines.clone_from_slice(mines);
-        new_mines[cfg.cell_coords_to_idx(cell_x, cell_y)] = false;
-        new_mines[cfg.cell_coords_to_idx(sx, sy)] = true;
+        new_mines[cfg.cell_coords_to_idx(cell_x, cell_y)] = true;
+        new_mines[cfg.cell_coords_to_idx(sx, sy)] = false;
 
         let mut any_changes_to_revealed_numbers = false;
         let mut numbers_that_would_be_changed = Vec::new();
@@ -534,7 +534,7 @@ fn try_move_mine(
             [] => panic!("Moved a mine, but the board is identical?"),
             [_, _, ..] => panic!("Moved a mine, but multiple cells changed?"),
         };
-        println!("Anti-guess: moved a mine from {cell_x},{cell_y} to {new_x},{new_y}.");
+        println!("Anti-guess: moved a mine to {cell_x},{cell_y} from {new_x},{new_y}.");
     }
     *mines = new_mines;
     // Regenerate the whole board so we can notice bugs more easily.
