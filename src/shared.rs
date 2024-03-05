@@ -48,6 +48,8 @@ pub struct Config {
     // These are set by the game window
     pub buffer_width: usize,
     pub buffer_height: usize,
+
+    pub already_died: bool,
 }
 
 impl Default for Config {
@@ -59,6 +61,7 @@ impl Default for Config {
             lang: Default::default(),
             buffer_width: Default::default(),
             buffer_height: Default::default(),
+            already_died: false,
         }
     }
 }

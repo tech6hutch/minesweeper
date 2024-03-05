@@ -18,13 +18,15 @@ pub const SAFE_CELLS_FOR_FIRST_CLICK: usize = 9; // 1 + 8 surrounding cells
 static DIGITS_JP: [char; 10] = ['0', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
 
 pub enum GameEnd {
-    // Restart,
-    Quit,
+    DidNotLose,
+    Lost,
 }
 
 pub fn run(cfg: &mut Config) -> GameEnd {
     cfg.buffer_width = (CELL_SIZE + 1) * cfg.cell_cols + 1;
     cfg.buffer_height = (CELL_SIZE + 1) * cfg.cell_rows + 1;
+
+    let mut game_result = GameEnd::DidNotLose;
 
     // let font_en = FontRef::try_from_slice(shared::FIRA_CODE_BYTES).unwrap();
     let font_jp = FontRef::try_from_slice(shared::NOTO_SANS_JP_BYTES).unwrap();
@@ -109,6 +111,10 @@ pub fn run(cfg: &mut Config) -> GameEnd {
     let mut is_game_over = false;
     let mut just_won = false;
     let mut just_lost = false;
+    if cfg.already_died {
+        is_game_over = true;
+        just_lost = true;
+    }
     while window.is_open() && !window.is_key_down(Key::Escape) {
         // if let Some(menu_id) = window.is_menu_pressed() {
         //     match menu_id {
@@ -344,11 +350,14 @@ pub fn run(cfg: &mut Config) -> GameEnd {
             }
 
             if just_won || just_lost {
+                game_result = if just_won { GameEnd::DidNotLose } else { GameEnd::Lost };
                 let font = font.as_scaled(CELL_SIZE_F);
                 show_message(
                     cfg,
                     if just_won {
                         cfg.en_jp("You won!", "やった！")
+                    } else if cfg.already_died {
+                        "You already died!\nYou can't just try\nagain, that's not\nhow death works."
                     } else {
                         cfg.en_jp("You lost!", "負けました。")
                     },
@@ -373,7 +382,7 @@ pub fn run(cfg: &mut Config) -> GameEnd {
             .unwrap();
     }
 
-    GameEnd::Quit
+    game_result
 }
 
 fn initialize_mines(
