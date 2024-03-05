@@ -1,5 +1,5 @@
 mod game_window;
-mod setup_window;
+// mod setup_window;
 mod shared;
 mod text;
 
@@ -58,15 +58,9 @@ fn main() {
     if let Some(mines) = parse_num_arg(mines_arg) {
         cfg.mine_count = mines;
     }
-    loop {
-        match setup_window::run(cfg) {
-            Some(new_cfg) => cfg = new_cfg,
-            None => return,
-        }
-        match game_window::run(&mut cfg) {
-            GameEnd::Restart => {}
-            GameEnd::Quit => return,
-        }
+
+    match game_window::run(&mut cfg) {
+        GameEnd::Quit => {}
     }
 }
 

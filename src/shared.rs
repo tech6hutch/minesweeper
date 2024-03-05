@@ -3,7 +3,7 @@ use glam::IVec2;
 pub const DEBUG_PRINTS: bool = cfg!(debug_assertions);
 pub const DEBUG_ANTI_GUESS: bool = DEBUG_PRINTS;
 
-pub static FIRA_CODE_BYTES: &[u8] = include_bytes!("../fonts/Fira_Code/FiraCode-Regular.ttf");
+// pub static FIRA_CODE_BYTES: &[u8] = include_bytes!("../fonts/Fira_Code/FiraCode-Regular.ttf");
 pub static NOTO_EMOJI_BYTES: &[u8] = include_bytes!("../fonts/Noto_Emoji/NotoEmoji-Regular.ttf");
 pub static NOTO_SANS_JP_BYTES: &[u8] =
     include_bytes!("../fonts/Noto_Sans_JP/NotoSansJP-Regular.ttf");
@@ -21,20 +21,20 @@ pub const COLOR_MESSAGE_BOX: u32 = 0x00223377;
 pub const COLOR_MESSAGE_BORDER: u32 = 0x00ffffff;
 pub const COLOR_MESSAGE_TEXT: u32 = COLOR_MESSAGE_BORDER;
 
-pub const COLOR_BUTTON: u32 = 0x00CFD495;
-pub const COLOR_BUTTON_BORDER: u32 = COLOR_MESSAGE_BORDER;
-pub const COLOR_BUTTON_TEXT: u32 = 0x00000000;
-pub const COLOR_BUTTON_SHADE: u32 = {
-    let bytes = COLOR_BUTTON.to_be_bytes();
-    u32::from_be_bytes([
-        0, // always zero
-        bytes[1] / 2,
-        bytes[2] / 2,
-        bytes[3] / 2,
-    ])
-};
+// pub const COLOR_BUTTON: u32 = 0x00CFD495;
+// pub const COLOR_BUTTON_BORDER: u32 = COLOR_MESSAGE_BORDER;
+// pub const COLOR_BUTTON_TEXT: u32 = 0x00000000;
+// pub const COLOR_BUTTON_SHADE: u32 = {
+//     let bytes = COLOR_BUTTON.to_be_bytes();
+//     u32::from_be_bytes([
+//         0, // always zero
+//         bytes[1] / 2,
+//         bytes[2] / 2,
+//         bytes[3] / 2,
+//     ])
+// };
 
-pub const COLOR_TEXT_CURSOR: u32 = 0x000000ff;
+// pub const COLOR_TEXT_CURSOR: u32 = 0x000000ff;
 
 // In pixels
 pub const CELL_SIZE: usize = 32;
@@ -102,6 +102,7 @@ impl Config {
 pub enum Lang {
     #[default]
     En,
+    #[allow(dead_code)]
     Jp,
 }
 impl Lang {

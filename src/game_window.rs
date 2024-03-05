@@ -4,21 +4,21 @@
 
 use ab_glyph::{Font, FontRef, ScaleFont};
 use glam::IVec2;
-use minifb::{Key, Menu, MenuHandle, MouseButton, MouseMode, Window};
+use minifb::{Key, MouseButton, MouseMode, Window};
 use std::time::{Duration, Instant};
 
 use crate::{shared, text};
-use shared::{Config, Lang, CELL_SIZE, CELL_SIZE_F};
+use shared::{Config, CELL_SIZE, CELL_SIZE_F};
 
 /// The number of cells that *must* be free of mines at the start of the game.
 pub const SAFE_CELLS_FOR_FIRST_CLICK: usize = 9; // 1 + 8 surrounding cells
 
-static DIGITS_EN: [char; 10] = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+// static DIGITS_EN: [char; 10] = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
 // Unlike English, these aren't in order in Unicode, so we can't just add a constant to convert.
 static DIGITS_JP: [char; 10] = ['0', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
 
 pub enum GameEnd {
-    Restart,
+    // Restart,
     Quit,
 }
 
@@ -26,12 +26,12 @@ pub fn run(cfg: &mut Config) -> GameEnd {
     cfg.buffer_width = (CELL_SIZE + 1) * cfg.cell_cols + 1;
     cfg.buffer_height = (CELL_SIZE + 1) * cfg.cell_rows + 1;
 
-    let font_en = FontRef::try_from_slice(shared::FIRA_CODE_BYTES).unwrap();
+    // let font_en = FontRef::try_from_slice(shared::FIRA_CODE_BYTES).unwrap();
     let font_jp = FontRef::try_from_slice(shared::NOTO_SANS_JP_BYTES).unwrap();
 
-    let mut font = cfg.en_jp(&font_en, &font_jp);
+    let font = &font_jp;
     let emoji_font = FontRef::try_from_slice(shared::NOTO_EMOJI_BYTES).unwrap();
-    let mut digits = cfg.en_jp(DIGITS_EN, DIGITS_JP);
+    let digits = DIGITS_JP;
     let mut buffer = vec![0u32; cfg.buffer_width * cfg.buffer_height];
     let mut window = Window::new(
         "Minesweeper",
@@ -41,45 +41,45 @@ pub fn run(cfg: &mut Config) -> GameEnd {
     )
     .unwrap();
 
-    const MENU_ID_NEW_GAME: usize = 1;
-    const MENU_ID_QUIT: usize = 2;
-    const MENU_ID_LANG_EN: usize = 3;
-    const MENU_ID_LANG_JP: usize = 4;
+    // const MENU_ID_NEW_GAME: usize = 1;
+    // const MENU_ID_QUIT: usize = 2;
+    // const MENU_ID_LANG_EN: usize = 3;
+    // const MENU_ID_LANG_JP: usize = 4;
 
-    fn create_menubar(cfg: &Config, window: &mut Window) -> Vec<MenuHandle> {
-        let mut menu_handles = Vec::new();
+    // fn create_menubar(cfg: &Config, window: &mut Window) -> Vec<MenuHandle> {
+    //     let mut menu_handles = Vec::new();
 
-        let mut game_menu = Menu::new(cfg.en_jp("Game", "ゲーム")).unwrap();
-        game_menu
-            .add_item(cfg.en_jp("New Game", "新しいゲーム"), MENU_ID_NEW_GAME)
-            .shortcut(Key::N, minifb::MENU_KEY_CTRL)
-            .build();
-        game_menu
-            .add_item(cfg.en_jp("Quit", "ゲームをやめる"), MENU_ID_QUIT)
-            .shortcut(Key::F4, minifb::MENU_KEY_ALT)
-            .build();
-        menu_handles.push(window.add_menu(&game_menu));
+    //     let mut game_menu = Menu::new(cfg.en_jp("Game", "ゲーム")).unwrap();
+    //     game_menu
+    //         .add_item(cfg.en_jp("New Game", "新しいゲーム"), MENU_ID_NEW_GAME)
+    //         .shortcut(Key::N, minifb::MENU_KEY_CTRL)
+    //         .build();
+    //     game_menu
+    //         .add_item(cfg.en_jp("Quit", "ゲームをやめる"), MENU_ID_QUIT)
+    //         .shortcut(Key::F4, minifb::MENU_KEY_ALT)
+    //         .build();
+    //     menu_handles.push(window.add_menu(&game_menu));
 
-        let mut options_menu = Menu::new(cfg.en_jp("Options", "設定")).unwrap();
-        let mut lang_menu = Menu::new(cfg.en_jp("Language", "言語")).unwrap();
-        lang_menu
-            .add_item(cfg.en_jp("English", "English（英語）"), MENU_ID_LANG_EN)
-            .build();
-        lang_menu
-            .add_item(cfg.en_jp("日本語 (Japanese)", "日本語"), MENU_ID_LANG_JP)
-            .build();
-        options_menu.add_sub_menu(cfg.en_jp("Language", "言語"), &lang_menu);
-        menu_handles.push(window.add_menu(&options_menu));
+    //     let mut options_menu = Menu::new(cfg.en_jp("Options", "設定")).unwrap();
+    //     let mut lang_menu = Menu::new(cfg.en_jp("Language", "言語")).unwrap();
+    //     lang_menu
+    //         .add_item(cfg.en_jp("English", "English（英語）"), MENU_ID_LANG_EN)
+    //         .build();
+    //     lang_menu
+    //         .add_item(cfg.en_jp("日本語 (Japanese)", "日本語"), MENU_ID_LANG_JP)
+    //         .build();
+    //     options_menu.add_sub_menu(cfg.en_jp("Language", "言語"), &lang_menu);
+    //     menu_handles.push(window.add_menu(&options_menu));
 
-        menu_handles
-    }
-    fn destroy_menubar(window: &mut Window, menu_handles: Vec<MenuHandle>) {
-        for menu_handle in menu_handles {
-            window.remove_menu(menu_handle);
-        }
-    }
+    //     menu_handles
+    // }
+    // fn destroy_menubar(window: &mut Window, menu_handles: Vec<MenuHandle>) {
+    //     for menu_handle in menu_handles {
+    //         window.remove_menu(menu_handle);
+    //     }
+    // }
 
-    let mut menu_handles = create_menubar(cfg, &mut window);
+    // let mut menu_handles = create_menubar(cfg, &mut window);
 
     let mut showing_message_since: Option<Instant> = None;
 
@@ -110,25 +110,25 @@ pub fn run(cfg: &mut Config) -> GameEnd {
     let mut just_won = false;
     let mut just_lost = false;
     while window.is_open() && !window.is_key_down(Key::Escape) {
-        if let Some(menu_id) = window.is_menu_pressed() {
-            match menu_id {
-                MENU_ID_NEW_GAME => return GameEnd::Restart,
-                MENU_ID_QUIT => return GameEnd::Quit,
-                MENU_ID_LANG_EN | MENU_ID_LANG_JP => {
-                    cfg.lang = if menu_id == MENU_ID_LANG_EN {
-                        Lang::En
-                    } else {
-                        Lang::Jp
-                    };
-                    font = cfg.en_jp(&font_en, &font_jp);
-                    digits = cfg.en_jp(DIGITS_EN, DIGITS_JP);
-                    needs_update = true;
-                    destroy_menubar(&mut window, menu_handles);
-                    menu_handles = create_menubar(cfg, &mut window);
-                }
-                _ => {}
-            }
-        }
+        // if let Some(menu_id) = window.is_menu_pressed() {
+        //     match menu_id {
+        //         MENU_ID_NEW_GAME => return GameEnd::Restart,
+        //         MENU_ID_QUIT => return GameEnd::Quit,
+        //         MENU_ID_LANG_EN | MENU_ID_LANG_JP => {
+        //             cfg.lang = if menu_id == MENU_ID_LANG_EN {
+        //                 Lang::En
+        //             } else {
+        //                 Lang::Jp
+        //             };
+        //             // font = cfg.en_jp(&font_en, &font_jp);
+        //             // digits = cfg.en_jp(DIGITS_EN, DIGITS_JP);
+        //             needs_update = true;
+        //             destroy_menubar(&mut window, menu_handles);
+        //             menu_handles = create_menubar(cfg, &mut window);
+        //         }
+        //         _ => {}
+        //     }
+        // }
 
         // Skip processing clicks when the game is over.
         let mut was_input = !is_game_over;
